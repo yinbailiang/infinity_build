@@ -10,5 +10,4 @@ git clone https://github.com/yinbailiang/infinity_build.git
 ```
 ##### 2.开始使用吧！
 
-#### 文档
-##### 暂无(
+#### [文档](doc/使用手册.md)
