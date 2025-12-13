@@ -16,7 +16,7 @@ $Config = Get-Content -Path $ConfigPath | ConvertFrom-Json
 
 if ($ReBuild) {
     Write-Host "[InfinityDbg] 重新构建"
-    & ./infinity_build.ps1 -ConfigPath $ConfigPath
+    & (Join-Path $PSScriptRoot 'infinity_build.ps1') -ConfigPath $ConfigPath
     Write-Host "[InfinityDbg] 重新构建完成"
 }
 
