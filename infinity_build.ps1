@@ -587,12 +587,38 @@ function Build-PreDefinedsModule {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [hashtable]$PreDefineds
+        [hashtable]$Config
     )
-    foreach($Name in $PreDefineds.Keys){
 
+    $PreDefinedsModule = [InfinityModule]@{
+        Name         = 'Builtin.PreDefineds'
+        Requires     = @()
+        Code         = @()
+        SourceInfo   = Get-Item -Path $PSCommandPath
+        LineMappings = @{}
     }
 
+    foreach ($Name in $Config.Keys) {
+        if ($Config[$Name] -is [string]) {
+            $PreDefinedsModule.Code.Add("`$$Name = '$($Config[$Name].Replace("'","''"))'")
+        }
+        elseif ($Config[$Name] -is [int]) {
+            $PreDefinedsModule.Code.Add("`$$Name = $($Config[$Name].ToString())")
+        }
+        elseif ($Config[$Name] -is [bool]) {
+            if ($Config[$Name]) {
+                $PreDefinedsModule.Code.Add("`$$Name = `$true")
+            }
+            else {
+                $PreDefinedsModule.Code.Add("`$$Name = `$false")
+            }
+        }
+        else {
+            throw "不支持的预定义变量类型: $Name -> $($Config[$Name].GetType())"
+        }
+    }
+    
+    return $PreDefinedsModule
 }
 #endregion
 
@@ -620,7 +646,10 @@ try {
     $OrderedModules = [System.Collections.Generic.List[InfinityModule]](Build-InfinityModules -SourceConfig $BuildConfig.Source)
     
     if ($BuildConfig.Resource) {
-        $OrderedModules.Insert(0,(Build-ResourceEmbedModule -ResourceConfig $BuildConfig.Resource))
+        $OrderedModules.Insert(0, (Build-ResourceEmbedModule -ResourceConfig $BuildConfig.Resource))
+    }
+    if ($BuildConfig.PreDefineds) {
+        $OrderedModules.Insert(0, (Build-PreDefinedsModule -Config $BuildConfig.PreDefineds))
     }
 
     $ProgramSegment = New-InfinityProgramSegment -Modules $OrderedModules
