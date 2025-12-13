@@ -651,6 +651,15 @@ try {
     if ($BuildConfig.PreDefineds) {
         $OrderedModules.Insert(0, (Build-PreDefinedsModule -Config $BuildConfig.PreDefineds))
     }
+    $OrderedModules.Add([InfinityModule]@{
+        Name = "Builtin.MainStart"
+        Requires = @()
+        Code = @(
+            'Invoke-Main $args'
+        )
+        SourceInfo = Get-Item -Path $PSCommandPath
+        LineMappings = @{}
+    })
 
     $ProgramSegment = New-InfinityProgramSegment -Modules $OrderedModules
 
@@ -658,6 +667,7 @@ try {
         $BuildConfig.Name
     }
     else {
+        Write-BuildLog -Message '未找到配置的名称，使用默认值: infinity_program'
         "infinity_program"
     }
 
