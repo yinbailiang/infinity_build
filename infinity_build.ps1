@@ -556,6 +556,10 @@ function Build-ResourceEmbedModule {
     $ResourceFiles = Find-ResourceFiles -Path $ResourcePath
     Write-BuildLog -Message "找到 $($ResourceFiles.Count) 个资源文件"
 
+    if($ResourceFiles.Count -eq 0) {
+        throw "没有找到任何资源文件，无法构建资源模块"
+    }
+
     $CurrentSnapshot = Get-ResourceSnapshot -ResourceFiles $ResourceFiles
     $PreviousSnapshot = if (Test-Path -Path $ResourceSnapshotPath -PathType Leaf) {
         Read-ResourceSnapshot -Path $ResourceSnapshotPath
