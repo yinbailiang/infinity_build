@@ -127,6 +127,10 @@ function Get-InfinityModule {
                     }
                 }
             }
+            if($Lines[$i].Trim().StartsWith('#>')){
+                $InfinityModule.Code.Add($Lines[$i].TrimEnd())
+                $InfinityModule.LineMappings[$InfinityModule.Code.Count] = $i + 1
+            }
             continue
         }
         $InfinityModule.Code.Add($Lines[$i].TrimEnd())
