@@ -1,4 +1,4 @@
-# ![](doc/res/RhineLogo.png) ![](doc/res/EngLogo.png)
+# ![](doc/res/arknights/RhineLogo.png) ![](doc/res/arknights/EngLogo.png)
 
 # ![](doc/res/Logo-32x.png) Infinity Build  
 
@@ -7,3 +7,6 @@ A PowerShell Development Kit
 
 #### 详细内容请参阅[文档](doc/index.md)
 For detailed information, please refer to the [Documentation](doc/index.md)
+
+#### 此项目中的内容，若无特殊说明，则遵守 [MIT协议](LICENSE.md)
+The content of this project, unless otherwise specified, is subject to the [MIT LICENSE](LICENSE.md)
