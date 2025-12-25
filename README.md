@@ -1,6 +1,6 @@
-# ![](doc\res\RhineLogo.png) ![](doc\res\EngLogo.png)
+# ![Logo](doc\res\RhineLogo.png) ![Logo](doc\res\EngLogo.png)
 
-# ![](doc\res\Logo-32x.png) Infinity Build  
+# ![Logo](doc\res\Logo-32x.png) Infinity Build
 
 #### 为PowerShell设计的程序开发套件
 A PowerShell Development Kit
