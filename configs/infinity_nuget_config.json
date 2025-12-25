@@ -1,0 +1,19 @@
+{
+  "Sources": [
+    "https://api.nuget.org/v3/index.json"
+  ],
+  "PackagesPath": ".buildcache/.nuget/packages",
+  "Nuget": {
+    "windows":{
+        "NetLink":"https://dist.nuget.org/win-x86-commandline/latest/nuget.exe",
+        "NugetPath":".buildcache/.nuget/win-x86/nuget.exe",
+        "Commands":".buildcache/.nuget/win-x86/nuget.exe"
+    },
+    "linux":{
+
+    },
+    "macos":{
+        
+    }
+  }
+}
