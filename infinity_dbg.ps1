@@ -1,3 +1,17 @@
+<#
+.NOTES
+    Name: infinity_dbg
+    Author: YinBailiang
+    Version: 1.0.0
+.SYNOPSIS
+    PowerShell 工具用于调试 infinity_build 生成的带有调试信息的项目
+.DESCRIPTION
+    这个工具提供以下功能：
+    1. 运行打包的项目
+    2. 尝试捕获错误
+    3. 映射错误位置
+#>
+
 # 根据参数执行脚本并利用调试信息映射错误信息
 param (
     [Parameter(Mandatory = $true)]

@@ -1,3 +1,17 @@
+<#
+.NOTES
+    Name: infinity_build
+    Author: YinBailiang
+    Version: 1.0.0
+.SYNOPSIS
+    PowerShell 工具用于管理和打包 PowerShell 项目
+.DESCRIPTION
+    这个工具提供以下功能：
+    1. 管理项目
+    2. 打包项目
+    3. 打包资源
+#>
+
 #region 参数
 param(
     [Parameter(Mandatory = $true)]
