@@ -1,5 +1,3 @@
-# ![](doc/res/arknights/RhineLogo.png) ![](doc/res/arknights/EngLogo.png)
-
 # ![](doc/res/Logo-32x.png) Infinity Build  
 
 #### 为PowerShell设计的程序开发套件

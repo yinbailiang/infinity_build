@@ -1,7 +1,6 @@
 {
   "Sources": [
-    "https://api.nuget.org/v3/index.json",
-    "https://api.nuget.org2/v3/index.json"
+    "https://api.nuget.org/v3/index.json"
   ],
-  "PackagesPath": ".buildcache/.nuget/packages"
+  "PackagesPath": ".infinity_nuget/packages"
 }
