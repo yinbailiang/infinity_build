@@ -12,77 +12,112 @@
     3. 映射错误位置
 #>
 
-# 根据参数执行脚本并利用调试信息映射错误信息
+#region 输入参数
 param (
     [Parameter(Mandatory = $true)]
-    [string]$ConfigPath,
-    [Parameter()]
-    [System.Object[]]$ArgumentList = @(),
-    [Parameter()]
-    [switch]$ReBuild
+    [ValidateNotNullOrEmpty()]
+    [string]$ScriptPath,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$ArgumentList = @()
 )
+#endregion
 
-if (-not (Test-Path -Path $ConfigPath -PathType Leaf)) {
-    Write-Host "[InfinityDbg] 未找到配置文件: $ConfigPath" -ForegroundColor Red
-    throw "未找到配置文件: $ConfigPath"
+#region 日志
+. (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1')
+$Script:DbgLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityDbg")
+$Script:DbgLogger = [LogClient]::new($Script:DbgLoggerServer)
+#endregion
+
+#region 启动虚拟环境
+if (-not $Env:InInfinityDbgEnv) {
+    $Script:DbgLogger.Info("进入虚拟环境")
+    if ($ArgumentList.Count -ne 0){
+        pwsh -CommandWithArgs "`$Env:InInfinityDbgEnv = `$True; . $PSCommandPath @args" "-ScriptPath" $ScriptPath "-ArgumentList" $ArgumentList 
+    }else{
+        pwsh -CommandWithArgs "`$Env:InInfinityDbgEnv = `$True; . $PSCommandPath @args" "-ScriptPath" $ScriptPath 
+    }
+    exit
 }
-$Config = Get-Content -Path $ConfigPath | ConvertFrom-Json
+#endregion
 
-if ($ReBuild) {
-    Write-Host "[InfinityDbg] 重新构建"
-    & (Join-Path $PSScriptRoot 'infinity_build.ps1') -ConfigPath $ConfigPath
-    Write-Host "[InfinityDbg] 重新构建完成"
+#region 初始化
+if (-not (Test-Path -Path $ScriptPath -PathType Leaf)) {
+    $Script:DbgLogger.Error("未找到程序: $ScriptPath")
+    throw "未找到程序: $ScriptPath"
 }
-
-$ProgramName = if ($Config.Name) {
-    $Config.Name
+$Script = Get-Item -Path $ScriptPath
+    
+$ProgramPath = $Script.FullName
+$ProgramDebugInfoPath = [System.IO.Path]::ChangeExtension($ProgramPath, ".debug.json")
+    
+# 提取程序名称用于日志显示
+$ProgramName = $Script.Name
+$Script:DbgLogger.Info("调试程序: $ProgramName")
+    
+$DebugInfo = $null
+if (Test-Path -Path $ProgramDebugInfoPath -PathType Leaf) {
+    try {
+        $DebugInfo = Get-Content -Path $ProgramDebugInfoPath -Raw | ConvertFrom-Json -AsHashtable
+        $Script:DbgLogger.Info("已加载调试信息: $ProgramDebugInfoPath")
+    }
+    catch {
+        $Script:DbgLogger.Warn("无法解析调试信息文件，将无法获得行号映射: $ProgramDebugInfoPath")
+        $Script:DbgLogger.Debug("错误信息: $_")
+        $DebugInfo = $null
+    }
 }
 else {
-    "infinity_program"
+    $Script:DbgLogger.Warn("未找到程序调试信息，将无法获得行号映射: $ProgramDebugInfoPath")
 }
+#endregion
 
-$ProgramPath = Join-Path $PWD "$($ProgramName).ps1"
-$ProgramDebugInfoPath = Join-Path $PWD "$($ProgramName).debug.json"
-
-if(-not (Test-Path -Path $ProgramPath -PathType Leaf)){
-    Write-Host "[InfinityDbg] 未找到程序: $ProgramPath" -ForegroundColor Red
-    throw "[InfinityDbg] 未找到程序: $ProgramPath"
-}
-
-$DebugInfo = if(Test-Path -Path $ProgramDebugInfoPath -PathType Leaf){
-    Get-Content -Path $ProgramDebugInfoPath | ConvertFrom-Json
-}
-else{
-    Write-Host "[InfinityDbg] 未找到程序调试信息，将无法获得行号映射"
-    $null
-}
-
+#region 主逻辑
 try {
-    Write-Host "[InfinityDbg] 开始执行"
-    & $ProgramPath $ArgumentList
+    $Script:DbgLogger.Info("开始执行程序")
+        
+    # 显示传入的参数
+    if ($ArgumentList.Count -gt 0) {
+        $Script:DbgLogger.Info("参数列表: $($ArgumentList -join ' ')")
+    }
+        
+    # 执行脚本
+    & $ProgramPath @ArgumentList
 }
 catch {
     $ErrorMessage = $_.Exception.Message
     # 先打印错误信息，然后打印映射过的堆栈信息
-    Write-Host "[InfinityDbg] Error: $ErrorMessage" -ForegroundColor Red
+    $Script:DbgLogger.Error("执行时发生错误: $ErrorMessage")
+        
     $StackTraceString = $_.ScriptStackTrace
-    $StackTraceLines = $StackTraceString -split "\r?\n"
-    foreach ($Line in $StackTraceLines) {
-        Write-Host $Line -ForegroundColor Cyan
-        if ($Line -match 'at\s+(\S+),\s+(.*?):\s+line\s+(\d+)' ) {
-            $FunctionName = $Matches[1]
-            $FilePath = $Matches[2]
-            $LineNum = [int]$Matches[3]
-            if ($FilePath -eq $ProgramPath) {
-                $Mapping = $DebugInfo | Where-Object { $_.OutputLine -eq $LineNum }
-                if ($Mapping) {
-                    $SourceFile = $Mapping.SourceFile
-                    $SourceLineNum = $Mapping.SourceLineNum
-                    Write-Host "   -> $SourceFile`: line $SourceLineNum" -ForegroundColor Yellow
-                    continue
+    if (-not [string]::IsNullOrEmpty($StackTraceString)) {
+        $Script:DbgLogger.Info("调用堆栈跟踪:")
+        $StackTraceLines = $StackTraceString -split "\r?\n"
+            
+        foreach ($Line in $StackTraceLines) {
+            # 打印原始堆栈行
+            $Script:DbgLogger.Info($Line)
+                
+            # 尝试映射行号
+            if ($Line -match 'at\s+<ScriptBlock>,\s+(.*?):\s+line\s+(\d+)') {
+                $FilePath = $Matches[1]
+                $LineNum = [int]$Matches[2]
+                    
+                # 检查是否是程序文件
+                if ($FilePath -eq $ProgramPath -and $DebugInfo) {
+                    # 查找映射关系
+                    $Mapping = $DebugInfo | Where-Object { $_.OutputLine -eq $LineNum }
+                    if ($Mapping) {
+                        $SourceFile = $Mapping.SourceFile
+                        $SourceLineNum = $Mapping.SourceLineNum
+                        $Script:DbgLogger.Info("    -> at $($SourceFile): line $SourceLineNum")
+                    }
                 }
             }
         }
     }
 }
-Write-Host "[InfinityDbg] 执行完毕"
+finally {
+    $Script:DbgLogger.Info("执行完毕")
+}
+#endregion

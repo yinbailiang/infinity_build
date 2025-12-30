@@ -16,7 +16,7 @@
 
 #region 日志
 . (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1')
-$Script:NugetLoggerServer = [LogServer]::new([LogType]::LogDebug,"InfinityNuget")
+$Script:NugetLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityNuget")
 $Script:NugetLogger = [LogClient]::new($Script:NugetLoggerServer)
 #endregion
 
@@ -48,9 +48,29 @@ class NugetSource {
     [hashtable]$ServiceEndpoints = @{}
 }
 
+<#
+.SYNOPSIS
+通过 NuGet 包源的索引 Url 初始化 NuGetSource
+
+.DESCRIPTION
+基于 NuGet 包源的索引 Url, 获取源支持的服务端点和版本
+
+.PARAMETER Url
+必选, NuGet 包源的索引 Url, 用于获取服务端点
+
+.EXAMPLE
+PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+# 使用 NuGet 包源的索引 Url, 初始化一个 NugetSource 对象
+
+.INPUTS
+[string] - Url 参数支持管道输入(搜索关键词)
+
+.OUTPUTS
+[NugetSource] - 表示 NuGet 包源的类
+#>
 function New-NugetSource {
     [CmdletBinding()]
-    [OutputType([hashtable[]])]
+    [OutputType([NugetSource])]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [ValidateNotNullOrEmpty()]
@@ -90,7 +110,7 @@ function New-NugetSource {
             foreach ($Resource in $Data['resources']) {
                 # 确保服务类型和ID字段存在
                 if ($Resource.ContainsKey('@type') -and $Resource.ContainsKey('@id')) {
-                    $Source.ServiceEndpoints[$Resource['@type']] = $Resource['@id'] -replace '/$',''
+                    $Source.ServiceEndpoints[$Resource['@type']] = $Resource['@id'] -replace '/$', ''
                 }
             }
         }
@@ -393,14 +413,47 @@ function ConvertTo-NuGetVersion {
     }
 }
 
+<#
+.SYNOPSIS
+获取指定 NuGet 包的所有可用版本列表
+
+.DESCRIPTION
+通过 PackageBaseAddress/3.0.0 服务端点获取指定 NuGet 包的所有可用版本，
+支持过滤预发布版本。返回的版本信息已通过 ConvertTo-NuGetVersion 函数标准化。
+
+.PARAMETER Source
+必选，NugetSource 类的实例（已初始化的包源对象），用于获取包基础地址端点
+
+.PARAMETER Id
+必选，NuGet 包的唯一标识符（包名称）
+
+.PARAMETER Preview
+可选，是否包含预发布版本。默认仅返回稳定版本
+
+.EXAMPLE
+PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> Get-NugetPackageVersions -Source $source -Id "Newtonsoft.Json"
+# 获取 Newtonsoft.Json 包的所有稳定版本
+
+.EXAMPLE
+PS> Get-NugetPackageVersions -Source $source -Id "Microsoft.AspNetCore" -Preview
+# 获取 Microsoft.AspNetCore 包的所有版本（包括预发布版本）
+
+.OUTPUTS
+[hashtable[]] - 标准化后的 NuGet 版本信息数组，每个元素包含原始版本、归一化版本、核心段等信息
+#>
 function Get-NugetPackageVersions {
     [CmdletBinding()]
     [OutputType([hashtable[]])]
     param (
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [NugetSource]$Source,
+
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$Id,
+
         [Parameter(Mandatory = $false)]
         [switch]$Preview
     )
@@ -428,15 +481,51 @@ function Get-NugetPackageVersions {
     }
 }
 
+<#
+.SYNOPSIS
+获取指定 NuGet 包的清单文件（nuspec）
+
+.DESCRIPTION
+通过 PackageBaseAddress/3.0.0 服务端点下载指定版本 NuGet 包的 .nuspec 文件，
+返回解析后的 XML 文档对象，包含包的元数据、依赖关系等信息。
+
+.PARAMETER Source
+必选，NugetSource 类的实例（已初始化的包源对象），用于获取包基础地址端点
+
+.PARAMETER Id
+必选，NuGet 包的唯一标识符（包名称）
+
+.PARAMETER Version
+必选，NuGet 包的具体版本号
+
+.EXAMPLE
+PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> $manifest = Get-NugetPackagManifest -Source $source -Id "Newtonsoft.Json" -Version "13.0.1"
+PS> $manifest.package.metadata.id
+# 获取 Newtonsoft.Json 13.0.1 版本的清单并显示包ID
+
+.EXAMPLE
+PS> Get-NugetPackagManifest -Source $source -Id "AutoMapper" -Version "12.0.1" | 
+    Select-Xml -XPath "//dependency" | Select-Object -ExpandProperty Node
+# 获取 AutoMapper 12.0.1 版本的依赖项列表
+
+.OUTPUTS
+[xml] - NuGet 包清单的 XML 文档对象
+#>
 function Get-NugetPackagManifest {
     [CmdletBinding()]
     [OutputType([xml])]
     param (
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [NugetSource]$Source,
+
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$Id,
+
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$Version
     )
     if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
@@ -463,15 +552,51 @@ function Get-NugetPackagManifest {
     }
 }
 
+<#
+.SYNOPSIS
+下载指定 NuGet 包的二进制内容（.nupkg 文件）
+
+.DESCRIPTION
+通过 PackageBaseAddress/3.0.0 服务端点下载指定版本 NuGet 包的 .nupkg 文件，
+返回包含包完整内容的字节数组，可用于保存到本地文件或进一步处理。
+
+.PARAMETER Source
+必选，NugetSource 类的实例（已初始化的包源对象），用于获取包基础地址端点
+
+.PARAMETER Id
+必选，NuGet 包的唯一标识符（包名称）
+
+.PARAMETER Version
+必选，NuGet 包的具体版本号
+
+.EXAMPLE
+PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> $packageBytes = Get-NugetPackagContent -Source $source -Id "Newtonsoft.Json" -Version "13.0.1"
+PS> Set-Content -Path "Newtonsoft.Json.13.0.1.nupkg" -Value $packageBytes -AsByteStream
+# 下载 Newtonsoft.Json 13.0.1 版本的 .nupkg 文件并保存到本地
+
+.EXAMPLE
+PS> $content = Get-NugetPackagContent -Source $source -Id "Serilog" -Version "3.1.1"
+PS> $content.Length / 1MB
+# 获取 Serilog 3.1.1 包的大小（以 MB 为单位）
+
+.OUTPUTS
+[byte[]] - NuGet 包文件的字节数组
+#>
 function Get-NugetPackagContent {
     [CmdletBinding()]
     [OutputType([byte[]])]
     param (
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [NugetSource]$Source,
+
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$Id,
+        
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$Version
     )
     if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
@@ -498,6 +623,61 @@ function Get-NugetPackagContent {
     }
 }
 
-function Install-NugetPackage {
+$Script:NugetLogger.Scope("加载配置", {
+        $Script:ConfigPath = Join-Path -Path $PSScriptRoot 'configs' 'infinity_nuget_config.json'
+        $Script:NugetLogger.Info("配置文件: $($Script:ConfigPath)")
+        $Script:Config = Get-Content -Path $Script:ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable;
+        $Script:NugetLogger.Info("配置: $($Script:Config | ConvertTo-Json -Depth 3)")
+    })
+
+<#
+.SYNOPSIS
+表示 NuGet 包库的核心类，用于记录包库中的包和包的版本
+#>
+class NugetPackageLibraryManifest {
+    <#
+    .SYNOPSIS
+    NuGet 包库的包字典，Key 为包Id，Value 为包 Versuion
+    #>
+    [hashtable]$Packages = @{}
+}
+
+$Script:NugetPackageLibraryManifestFileName = "infinity_nuget_library.json"
+
+function Save-NugetPackageLibraryManifest {
+
+}
+
+function Read-NugetPackagLibraryManifest {
+
     
 }
+
+function New-NugetPackageLibraryManifest {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path
+    )
+    
+    if (-not (Test-Path -Path $Path -PathType Container)) {
+        $Item = New-Item -Path $Path -ItemType Directory
+        $Path = $Item.FullName
+    }
+    else {
+        $Item = Get-Item -Path $Path
+        $Path = $Item.FullName
+    }
+    $Script:NugetLogger.Info("Nuget 包库文件夹: $($Path)")
+
+    $PackageLibrary = [NugetPackageLibrary]::new()
+
+    $PackageLibrary | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path (Join-Path $Path $Script:NugetPackageLibraryConfigFileName)
+
+    return $Path
+}
+
+$LibraryPath = New-NugetPackageLibraryManifest -Path $Script:Config["PackagesPath"]
+$LibraryManifest = Read-NugetPackagLibraryManifest -Path $LibraryPath
