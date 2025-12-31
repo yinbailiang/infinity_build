@@ -29,9 +29,15 @@ Set-Location infinity_build
 
 ---
 
-## 后续步骤
+## API 文档
 
-建议查看项目内的详细文档，了解已提供的脚本模块、函数功能以及如何将它们集成到你的工作流中。
+### [infinity_log](./reference/infinity_log.md)
+
+### [infinity_nuget](./reference/infinity_nuget.md)
+
+### [infinity_build](./reference/infinity_build.md)
+
+### [infinity_dbg](./reference/infinity_dbg.md)
 
 ---
 
