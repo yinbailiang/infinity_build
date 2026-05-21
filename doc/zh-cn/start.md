@@ -31,13 +31,6 @@ Set-Location infinity_build
 
 ## API 文档
 
-### [infinity_log](./reference/infinity_log.md)
-
-### [infinity_nuget](./reference/infinity_nuget.md)
-
-### [infinity_build](./reference/infinity_build.md)
-
-### [infinity_dbg](./reference/infinity_dbg.md)
 
 ---
 

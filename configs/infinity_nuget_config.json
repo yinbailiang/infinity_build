@@ -1,6 +1,0 @@
-{
-  "Sources": [
-    "https://api.nuget.org/v3/index.json"
-  ],
-  "PackagesPath": ".infinity_build/packages"
-}

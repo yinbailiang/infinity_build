@@ -31,9 +31,9 @@ $Script:NugetLogger = [LogClient]::new($Script:NugetLoggerServer)
 为后续 NuGet 操作（如搜索包、下载包）提供基础信息。
 
 .EXAMPLE
-PS> $nugetSource =  New-NugetSource -Url "https://api.nuget.org/v3/index.json"
-PS> $nugetSource.Version  # 输出包源版本
-PS> $nugetSource.ServiceEndpoints["SearchQueryService"]  # 输出搜索服务端点地址
+PS> $NugetSource =  New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> $NugetSource.Version  # 输出包源版本
+PS> $NugetSource.ServiceEndpoints["SearchQueryService"]  # 输出搜索服务端点地址
 #>
 class NugetSource {
     <#
@@ -60,11 +60,11 @@ class NugetSource {
 必选, NuGet 包源的索引 Url, 用于获取服务端点
 
 .EXAMPLE
-PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> $Source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
 # 使用 NuGet 包源的索引 Url, 初始化一个 NugetSource 对象
 
 .INPUTS
-[string] - Url 参数支持管道输入(搜索关键词)
+[string] - Url 参数支持管道输入
 
 .OUTPUTS
 [NugetSource] - 表示 NuGet 包源的类
@@ -82,13 +82,13 @@ function New-NugetSource {
         
     try {
         # 发起包源元数据请求（设置超时+忽略SSL错误，提升健壮性）
-        $requestParams = @{
+        $RequestParams = @{
             Uri         = $Url
             Method      = "Get"
             TimeoutSec  = 30  # 设置请求超时时间
             ErrorAction = "Stop"
         }
-        $Response = Invoke-WebRequest @requestParams
+        $Response = Invoke-WebRequest @RequestParams
 
         # 验证响应内容非空
         if (-not $Response.Content) {
@@ -121,9 +121,9 @@ function New-NugetSource {
     }
     catch {
         if ($_.Exception.Response) {
-            $statusCode = $_.Exception.Response.StatusCode
-            $statusDesc = $_.Exception.Response.StatusDescription
-            $Script:NugetLogger.Error("NuGet 包源请求失败: $Source | 状态码: $statusCode | 描述: $statusDesc")
+            $StatusCode = $_.Exception.Response.StatusCode
+            $StatusDesc = $_.Exception.Response.StatusDescription
+            $Script:NugetLogger.Error("NuGet 包源请求失败: $Source | 状态码: $StatusCode | 描述: $StatusDesc")
         }
         else {
             $Script:NugetLogger.Error("NuGet 包源初始化失败: $Source | 错误: $($_.Exception.Message)")
@@ -157,12 +157,12 @@ function New-NugetSource {
 可选, 是否包含预发布版本的包, 默认值仅返回稳定版
 
 .EXAMPLE
-PS> $source = [NugetSource]::new("https://api.nuget.org/v3/index.json")
-PS> Search-NugetPackage -Source $source -Query "Newtonsoft.Json" -Take 10 -Prerelease
+PS> $Source = [NugetSource]::new("https://api.nuget.org/v3/index.json")
+PS> Search-NugetPackage -Source $Source -Query "Newtonsoft.Json" -Take 10 -Prerelease
 # 搜索 Newtonsoft.Json 包，返回10条结果，包含预发布版本
 
 .EXAMPLE
-PS> "Microsoft.Extensions.DependencyInjection" | Search-NugetPackage -Source $source -Skip 0 -Take 5
+PS> "Microsoft.Extensions.DependencyInjection" | Search-NugetPackage -Source $Source -Skip 0 -Take 5
 # 通过管道输入搜索关键词, 分页获取前5条稳定版结果
 
 .INPUTS
@@ -386,11 +386,11 @@ function ConvertTo-NuGetVersion {
                 $NormalizedCore = $CoreSegments -join '.'
             }
             $NormalizedVersion = $NormalizedCore
-            if ($matches.ContainsKey('Prerelease') -and $matches['Prerelease']) {
-                $NormalizedVersion += "-$($matches['Prerelease'])"
+            if ($Matches.ContainsKey('Prerelease') -and $Matches['Prerelease']) {
+                $NormalizedVersion += "-$($Matches['Prerelease'])"
             }
-            if ($matches.ContainsKey('Buildmetadata') -and $matches['Buildmetadata']) {
-                $NormalizedVersion += "+$($matches['Buildmetadata'])"
+            if ($Matches.ContainsKey('Buildmetadata') -and $Matches['Buildmetadata']) {
+                $NormalizedVersion += "+$($Matches['Buildmetadata'])"
             }
 
             # 步骤6：构造返回哈希表
@@ -432,12 +432,12 @@ function ConvertTo-NuGetVersion {
 可选，是否包含预发布版本。默认仅返回稳定版本
 
 .EXAMPLE
-PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
-PS> Get-NugetPackageVersions -Source $source -Id "Newtonsoft.Json"
+PS> $Source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> Get-NugetPackageVersions -Source $Source -Id "Newtonsoft.Json"
 # 获取 Newtonsoft.Json 包的所有稳定版本
 
 .EXAMPLE
-PS> Get-NugetPackageVersions -Source $source -Id "Microsoft.AspNetCore" -Preview
+PS> Get-NugetPackageVersions -Source $Source -Id "Microsoft.AspNetCore" -Preview
 # 获取 Microsoft.AspNetCore 包的所有版本（包括预发布版本）
 
 .OUTPUTS
@@ -500,13 +500,13 @@ function Get-NugetPackageVersions {
 必选，NuGet 包的具体版本号
 
 .EXAMPLE
-PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
-PS> $manifest = Get-NugetPackagManifest -Source $source -Id "Newtonsoft.Json" -Version "13.0.1"
-PS> $manifest.package.metadata.id
+PS> $Source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> $Manifest = Get-NugetPackagManifest -Source $Source -Id "Newtonsoft.Json" -Version "13.0.1"
+PS> $Manifest.package.metadata.id
 # 获取 Newtonsoft.Json 13.0.1 版本的清单并显示包ID
 
 .EXAMPLE
-PS> Get-NugetPackagManifest -Source $source -Id "AutoMapper" -Version "12.0.1" | 
+PS> Get-NugetPackagManifest -Source $Source -Id "AutoMapper" -Version "12.0.1" | 
     Select-Xml -XPath "//dependency" | Select-Object -ExpandProperty Node
 # 获取 AutoMapper 12.0.1 版本的依赖项列表
 
@@ -571,14 +571,14 @@ function Get-NugetPackagManifest {
 必选，NuGet 包的具体版本号
 
 .EXAMPLE
-PS> $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
-PS> $packageBytes = Get-NugetPackagContent -Source $source -Id "Newtonsoft.Json" -Version "13.0.1"
-PS> Set-Content -Path "Newtonsoft.Json.13.0.1.nupkg" -Value $packageBytes -AsByteStream
+PS> $Source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
+PS> $PackageBytes = Get-NugetPackagContent -Source $Source -Id "Newtonsoft.Json" -Version "13.0.1"
+PS> Set-Content -Path "Newtonsoft.Json.13.0.1.nupkg" -Value $PackageBytes -AsByteStream
 # 下载 Newtonsoft.Json 13.0.1 版本的 .nupkg 文件并保存到本地
 
 .EXAMPLE
-PS> $content = Get-NugetPackagContent -Source $source -Id "Serilog" -Version "3.1.1"
-PS> $content.Length / 1MB
+PS> $Content = Get-NugetPackagContent -Source $Source -Id "Serilog" -Version "3.1.1"
+PS> $Content.Length / 1MB
 # 获取 Serilog 3.1.1 包的大小（以 MB 为单位）
 
 .OUTPUTS
@@ -633,7 +633,7 @@ function Get-NugetPackagContent {
 class NugetPackageLibraryManifest {
     <#
     .SYNOPSIS
-    NuGet 包库的包字典，Key 为包Id，Value 为包 Versuion
+    NuGet 包库的包字典，Key 为包Id，Value 为包版本信息字典
     #>
     [hashtable]$Packages = @{}
 }
@@ -654,7 +654,7 @@ $Script:NugetPackageLibraryManifestFileName = "infinity_nuget_library.json"
 必选，要保存的包库清单对象
 
 .EXAMPLE
-PS> Save-NugetPackageLibraryManifest -Path "C:\NuGetPackages" -Manifest $manifest
+PS> Save-NugetPackageLibraryManifest -Path "C:\NuGetPackages" -Manifest $Manifest
 # 保存包库清单到指定目录
 #>
 function Save-NugetPackageLibraryManifest {
@@ -670,10 +670,10 @@ function Save-NugetPackageLibraryManifest {
     )
     
     try {
-        $manifestPath = Join-Path $Path $Script:NugetPackageLibraryManifestFileName
-        $Script:NugetLogger.Info("保存包库清单到: $manifestPath")
+        $ManifestPath = Join-Path $Path $Script:NugetPackageLibraryManifestFileName
+        $Script:NugetLogger.Info("保存包库清单到: $ManifestPath")
         
-        $Manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding UTF8 -Force
+        $Manifest | ConvertTo-Json -Depth 5 -Compress | Set-Content -Path $ManifestPath -Encoding UTF8 -Force
         $Script:NugetLogger.Info("包库清单保存成功")
     }
     catch {
@@ -693,13 +693,13 @@ function Save-NugetPackageLibraryManifest {
 必选，包库根目录路径
 
 .EXAMPLE
-PS> $manifest = Read-NugetPackagLibraryManifest -Path "C:\NuGetPackages"
+PS> $Manifest = Read-NugetPackageLibraryManifest -Path "C:\NuGetPackages"
 # 从指定目录读取包库清单
 
 .OUTPUTS
 [NugetPackageLibraryManifest] - 包库清单对象
 #>
-function Read-NugetPackagLibraryManifest {
+function Read-NugetPackageLibraryManifest {
     [CmdletBinding()]
     [OutputType([NugetPackageLibraryManifest])]
     param (
@@ -709,21 +709,26 @@ function Read-NugetPackagLibraryManifest {
     )
     
     try {
-        $manifestPath = Join-Path $Path $Script:NugetPackageLibraryManifestFileName
+        $ManifestPath = Join-Path $Path $Script:NugetPackageLibraryManifestFileName
         
-        if (-not (Test-Path -Path $manifestPath -PathType Leaf)) {
-            throw "目标路径不是 NugetPackageLibrary : $Path"
+        if (-not (Test-Path -Path $ManifestPath -PathType Leaf)) {
+            throw "未找到库清单文件: $ManifestPath"
         }
 
-        $Script:NugetLogger.Info("从 $manifestPath 读取包库清单")
-        $json = Get-Content -Path $manifestPath -Raw -Encoding UTF8
-        $manifest = $json | ConvertFrom-Json -AsHashtable
+        $Script:NugetLogger.Info("从 $ManifestPath 读取包库清单")
+        $Json = Get-Content -Path $ManifestPath -Raw -Encoding UTF8
+        $ManifestData = $Json | ConvertFrom-Json -AsHashtable
+        
+        if(-not $ManifestData.ContainsKey("Packages")){
+            $Script:NugetLogger.Warn("包库清单缺失 Packages 项, 自动补全")
+            $PackageManifest['Packages'] = @{}
+        }
+
+        $PackageManifest = [NugetPackageLibraryManifest]::new()
+        $PackageManifest.Packages = $ManifestData.Packages
             
-        $packageManifest = [NugetPackageLibraryManifest]::new()
-        $packageManifest.Packages = $manifest.Packages
-            
-        $Script:NugetLogger.Info("包库清单读取成功，包含 $($packageManifest.Packages.Count) 个包")
-        return $packageManifest
+        $Script:NugetLogger.Info("包库清单读取成功")
+        return $PackageManifest
     }
     catch {
         $Script:NugetLogger.Error("读取包库清单失败: $($_.Exception.Message)")
@@ -742,7 +747,7 @@ function Read-NugetPackagLibraryManifest {
 必选，包库根目录路径
 
 .EXAMPLE
-PS> $libraryPath = New-NugetPackageLibraryManifest -Path "C:\NuGetPackages"
+PS> $LibraryPath = New-NugetPackageLibraryManifest -Path "C:\NuGetPackages"
 # 在指定路径创建包库
 
 .OUTPUTS
@@ -797,11 +802,11 @@ function New-NugetPackageLibraryManifest {
 可选，强制重新安装包（覆盖已存在的版本）
 
 .EXAMPLE
-PS> Install-NugetPackage -Source $source -Id "Newtonsoft.Json" -Version "13.0.1" -LibraryPath "C:\NuGetPackages"
+PS> Install-NugetPackage -Source $Source -Id "Newtonsoft.Json" -Version "13.0.1" -LibraryPath "C:\NuGetPackages"
 # 安装 Newtonsoft.Json 13.0.1 版本到指定包库
 
 .EXAMPLE
-PS> Install-NugetPackage -Source $source -Id "Serilog" -Version "3.1.1" -LibraryPath "C:\NuGetPackages" -Force
+PS> Install-NugetPackage -Source $Source -Id "Serilog" -Version "3.1.1" -LibraryPath "C:\NuGetPackages" -Force
 # 强制重新安装 Serilog 3.1.1 版本
 
 .OUTPUTS
@@ -836,66 +841,83 @@ function Install-NugetPackage {
         if (-not (Test-Path -Path $LibraryPath -PathType Container)) {
             throw "包库路径不存在: $LibraryPath"
         }
+
+        $LibraryPath = (Get-Item -Path $LibraryPath).FullName
+        $Id = $Id.Trim().ToLowerInvariant()
+        $Version = $Version.Trim().ToLowerInvariant()
+
+        # 读取包库清单
+        $Manifest = Read-NugetPackageLibraryManifest -Path $LibraryPath
         
-        # 读取或创建包库清单
-        $manifest = Read-NugetPackagLibraryManifest -Path $LibraryPath
-        
-        # 检查包是否已安装
-        $packageKey = "$Id.$Version"
-        $packageDir = Join-Path $LibraryPath $packageKey
-        
-        if (Test-Path -Path $packageDir -PathType Container) {
+        # 构造包位置
+        $PackagePath = Join-Path $LibraryPath $Id $Version
+
+        # 检查是否已安装
+        if ($Manifest.Packages.ContainsKey($Id) -and $Manifest.Packages[$Id].ContainsKey($Version)) {
             if ($Force) {
-                $Script:NugetLogger.Warn("包已存在，强制重新安装: $packageKey")
-                Remove-Item -Path $packageDir -Recurse -Force
+                $Script:NugetLogger.Warn("包已存在，强制重新安装: $Id.$Version")
+                if (Test-Path -Path $PackagePath) {
+                    Remove-Item -Path $PackagePath -Recurse -Force
+                }
             }
             else {
-                $Script:NugetLogger.Info("包已安装: $packageKey")
-                return $packageDir
+                $Script:NugetLogger.Info("包已安装: $Id.$Version")
+                return $PackagePath
+            }
+        }
+
+        if (Test-Path -Path $PackagePath) {
+            if ($Force) {
+                $Script:NugetLogger.Warn("异常的包文件存在于: $PackagePath")
+                $Script:NugetLogger.Warn("强制删除: $PackagePath")
+                Remove-Item -Path $PackagePath -Recurse -Force
+            }
+            else {
+                throw "异常的包文件存在于: $PackagePath"
             }
         }
         
         $Script:NugetLogger.Info("开始安装包: $Id 版本: $Version")
         
         # 下载包内容
-        $packageBytes = Get-NugetPackagContent -Source $Source -Id $Id -Version $Version
-        $Script:NugetLogger.Info("包下载完成，大小: $([math]::Round($packageBytes.Length/1KB,2)) KB")
+        $PackageBytes = Get-NugetPackagContent -Source $Source -Id $Id -Version $Version
+        $Script:NugetLogger.Info("包下载完成，大小: $([math]::Round($PackageBytes.Length/1KB,2)) KB")
         
         # 创建包目录
-        $null = New-Item -Path $packageDir -ItemType Directory -Force
-        $Script:NugetLogger.Info("创建包目录: $packageDir")
+        $null = New-Item -Path $PackagePath -ItemType Directory -Force
+        $Script:NugetLogger.Info("创建包目录: $PackagePath")
         
         # 保存 .nupkg 文件
-        $nupkgPath = Join-Path $packageDir "$Id.$Version.nupkg"
-        [System.IO.File]::WriteAllBytes($nupkgPath, $packageBytes)
-        $Script:NugetLogger.Info("保存 .nupkg 文件到: $nupkgPath")
+        $NupkgPath = Join-Path $PackagePath "$Id.$Version.nupkg"
+        [System.IO.File]::WriteAllBytes($NupkgPath, $PackageBytes)
+        $Script:NugetLogger.Info("保存 .nupkg 文件到: $NupkgPath")
         
         # 解压 .nupkg 文件
         $Script:NugetLogger.Info("开始解压包文件")
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkgPath, $packageDir)
+        Expand-Archive -Path $NupkgPath -DestinationPath $PackagePath
         $Script:NugetLogger.Info("包解压完成")
         
         # 更新包库清单
-        $manifest.Packages[$packageKey] = @{
-            Id          = $Id
-            Version     = $Version
-            InstallDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            Source      = $Source.ServiceEndpoints["PackageBaseAddress/3.0.0"]
+        if (-not $Manifest.Packages.ContainsKey($Id)) {
+            $Manifest.Packages[$Id] = @{}
         }
         
-        Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $manifest
-        $Script:NugetLogger.Info("包安装成功: $packageKey")
+        $Manifest.Packages[$Id][$Version] = @{
+            InstallDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        }
         
-        return $packageDir
+        Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $Manifest
+        $Script:NugetLogger.Info("包安装成功: $Id.$Version")
+        
+        return $PackagePath
     }
     catch {
         $Script:NugetLogger.Error("安装包失败: $($_.Exception.Message)")
         
         # 清理失败安装的目录
-        if (Test-Path -Path $packageDir -PathType Container) {
-            Remove-Item -Path $packageDir -Recurse -Force -ErrorAction SilentlyContinue
-            $Script:NugetLogger.Info("清理失败安装的目录: $packageDir")
+        if ($PackagePath -and (Test-Path -Path $PackagePath)) {
+            Remove-Item -Path $PackagePath -Recurse -Force -ErrorAction SilentlyContinue
+            $Script:NugetLogger.Info("清理失败安装的目录: $PackagePath")
         }
         
         throw
@@ -959,153 +981,76 @@ function Uninstall-NugetPackage {
             throw "包库路径不存在: $LibraryPath"
         }
         
+        $LibraryPath = (Get-Item -Path $LibraryPath).FullName
+        $Id = $Id.Trim().ToLowerInvariant()
+        
         # 读取包库清单
-        $manifest = Read-NugetPackagLibraryManifest -Path $LibraryPath
+        $Manifest = Read-NugetPackageLibraryManifest -Path $LibraryPath
+        
+        if (-not $Manifest.Packages.ContainsKey($Id)) {
+            $Script:NugetLogger.Warn("包未安装: $Id")
+            return $false
+        }
         
         if ($AllVersions) {
             # 卸载所有版本
-            $keysToRemove = @()
-            $packagesToRemove = @()
-            
-            foreach ($key in $manifest.Packages.Keys) {
-                if ($key -like "$Id.*") {
-                    $keysToRemove += $key
-                    $packageDir = Join-Path $LibraryPath $key
-                    $packagesToRemove += $packageDir
-                }
+            $VersionCount = $Manifest.Packages[$Id].Count
+            if ($VersionCount -eq 0) {
+                $Manifest.Packages.Remove($Id)
+                Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $Manifest
+                return $true
             }
             
-            if ($keysToRemove.Count -eq 0) {
-                $Script:NugetLogger.Warn("未找到要卸载的包: $Id")
-                return $false
-            }
-            
-            $Script:NugetLogger.Info("开始卸载包 $Id 的所有版本，共 $($keysToRemove.Count) 个版本")
+            $Script:NugetLogger.Info("开始卸载包 $Id 的所有版本，共 $VersionCount 个版本")
             
             # 删除包目录
-            foreach ($packageDir in $packagesToRemove) {
-                if (Test-Path -Path $packageDir -PathType Container) {
-                    Remove-Item -Path $packageDir -Recurse -Force
-                    $Script:NugetLogger.Info("删除包目录: $packageDir")
-                }
+            $PackageDir = Join-Path $LibraryPath $Id
+            if (Test-Path -Path $PackageDir -PathType Container) {
+                Remove-Item -Path $PackageDir -Recurse -Force
+                $Script:NugetLogger.Info("删除包目录: $PackageDir")
             }
             
             # 从清单中移除
-            foreach ($key in $keysToRemove) {
-                $manifest.Packages.Remove($key)
-            }
+            $Manifest.Packages.Remove($Id)
             
-            Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $manifest
+            Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $Manifest
             $Script:NugetLogger.Info("成功卸载包 $Id 的所有版本")
             
             return $true
         }
-        else {
-            # 卸载指定版本
-            $packageKey = "$Id.$Version"
+        # 卸载指定版本
+        $Version = $Version.Trim().ToLowerInvariant()
             
-            if (-not $manifest.Packages.ContainsKey($packageKey)) {
-                $Script:NugetLogger.Warn("包未安装: $packageKey")
-                return $false
-            }
-            
-            $Script:NugetLogger.Info("开始卸载包: $packageKey")
-            
-            # 删除包目录
-            $packageDir = Join-Path $LibraryPath $packageKey
-            if (Test-Path -Path $packageDir -PathType Container) {
-                Remove-Item -Path $packageDir -Recurse -Force
-                $Script:NugetLogger.Info("删除包目录: $packageDir")
-            }
-            
-            # 从清单中移除
-            $manifest.Packages.Remove($packageKey)
-            
-            Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $manifest
-            $Script:NugetLogger.Info("成功卸载包: $packageKey")
-            
-            return $true
+        if (-not $Manifest.Packages[$Id].ContainsKey($Version)) {
+            $Script:NugetLogger.Warn("包版本未安装: $Id.$Version")
+            return $false
         }
+            
+        $Script:NugetLogger.Info("开始卸载包: $Id.$Version")
+            
+        # 删除包目录
+        $PackageDir = Join-Path $LibraryPath $Id $Version
+        if (Test-Path -Path $PackageDir -PathType Container) {
+            Remove-Item -Path $PackageDir -Recurse -Force
+            $Script:NugetLogger.Info("删除包目录: $PackageDir")
+        }
+            
+        # 从清单中移除
+        $Manifest.Packages[$Id].Remove($Version)
+            
+        # 如果该包没有其他版本，移除包条目
+        if ($Manifest.Packages[$Id].Count -eq 0) {
+            $Manifest.Packages.Remove($Id)
+        }
+            
+        Save-NugetPackageLibraryManifest -Path $LibraryPath -Manifest $Manifest
+        $Script:NugetLogger.Info("成功卸载包: $Id.$Version")
+            
+        return $true
+        
     }
     catch {
         $Script:NugetLogger.Error("卸载包失败: $($_.Exception.Message)")
-        throw
-    }
-}
-
-<#
-.SYNOPSIS
-获取已安装的 NuGet 包列表
-
-.DESCRIPTION
-列出包库中已安装的所有 NuGet 包及其版本信息
-
-.PARAMETER LibraryPath
-必选，包库根目录路径
-
-.PARAMETER Id
-可选，筛选指定包ID的版本
-
-.EXAMPLE
-PS> Get-InstalledNugetPackages -LibraryPath "C:\NuGetPackages"
-# 获取所有已安装的包
-
-.EXAMPLE
-PS> Get-InstalledNugetPackages -LibraryPath "C:\NuGetPackages" -Id "Newtonsoft.Json"
-# 获取指定包的所有已安装版本
-
-.OUTPUTS
-[hashtable[]] - 已安装的包信息数组
-#>
-function Get-InstalledNugetPackages {
-    [CmdletBinding()]
-    [OutputType([hashtable[]])]
-    param (
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$LibraryPath,
-
-        [Parameter(Mandatory = $false)]
-        [string]$Id
-    )
-    
-    try {
-        # 验证包库路径
-        if (-not (Test-Path -Path $LibraryPath -PathType Container)) {
-            throw "包库路径不存在: $LibraryPath"
-        }
-        
-        # 读取包库清单
-        $manifest = Read-NugetPackagLibraryManifest -Path $LibraryPath
-        
-        $packages = @()
-        
-        foreach ($key in $manifest.Packages.Keys) {
-            $packageInfo = $manifest.Packages[$key]
-            
-            if (-not [string]::IsNullOrEmpty($Id) -and $packageInfo.Id -ne $Id) {
-                continue
-            }
-            
-            # 检查包目录是否存在
-            $packageDir = Join-Path $LibraryPath $key
-            $packageExists = Test-Path -Path $packageDir -PathType Container
-            
-            $packages += @{
-                Id          = $packageInfo.Id
-                Version     = $packageInfo.Version
-                Key         = $key
-                InstallDate = $packageInfo.InstallDate
-                Source      = $packageInfo.Source
-                Directory   = $packageDir
-                Exists      = $packageExists
-            }
-        }
-        
-        return $packages
-    }
-    catch {
-        $Script:NugetLogger.Error("获取已安装包列表失败: $($_.Exception.Message)")
         throw
     }
 }
@@ -1130,11 +1075,11 @@ function Get-InstalledNugetPackages {
 可选，是否包含预发布版本
 
 .EXAMPLE
-PS> Update-NugetPackage -Source $source -Id "Newtonsoft.Json" -LibraryPath "C:\NuGetPackages"
+PS> Update-NugetPackage -Source $Source -Id "Newtonsoft.Json" -LibraryPath "C:\NuGetPackages"
 # 更新 Newtonsoft.Json 包到最新稳定版本
 
 .EXAMPLE
-PS> Update-NugetPackage -Source $source -Id "Microsoft.AspNetCore" -LibraryPath "C:\NuGetPackages" -IncludePrerelease
+PS> Update-NugetPackage -Source $Source -Id "Microsoft.AspNetCore" -LibraryPath "C:\NuGetPackages" -IncludePrerelease
 # 更新包到最新版本（包含预发布版本）
 
 .OUTPUTS
@@ -1164,35 +1109,32 @@ function Update-NugetPackage {
         $Script:NugetLogger.Info("开始检查包更新: $Id")
         
         # 获取包的所有可用版本
-        $availableVersions = Get-NugetPackageVersions -Source $Source -Id $Id -Preview:$IncludePrerelease
+        $AvailableVersions = Get-NugetPackageVersions -Source $Source -Id $Id -Preview:$IncludePrerelease
         
-        if ($availableVersions.Count -eq 0) {
+        if ($AvailableVersions.Count -eq 0) {
             throw "未找到包 $Id 的可用版本"
         }
         
         # 获取最新版本（按版本号降序排序）
-        $latestVersion = $availableVersions | 
+        $LatestVersion = $AvailableVersions | 
         Sort-Object { $_['Major'] }, { $_['Minor'] }, { $_['Patch'] }, { $_['Revision'] } -Descending | 
         Select-Object -First 1
         
-        $latestVersionString = $latestVersion['NormalizedVersion']
-        $Script:NugetLogger.Info("包 $Id 的最新版本: $latestVersionString")
+        $LatestVersionString = $LatestVersion['NormalizedVersion'].ToLowerInvariant()
+        $Script:NugetLogger.Info("包 $Id 的最新版本: $LatestVersionString")
         
         # 检查是否已安装最新版本
-        $installedPackages = Get-InstalledNugetPackages -LibraryPath $LibraryPath -Id $Id
+        $Manifest = Read-NugetPackageLibraryManifest -Path $LibraryPath
         
-        $currentVersion = $installedPackages | 
-        Sort-Object { [version]$_.Version } -Descending | 
-        Select-Object -First 1
-        
-        if ($currentVersion -and $currentVersion.Version -eq $latestVersionString) {
-            $Script:NugetLogger.Info("包 $Id 已是最新版本: $latestVersionString")
-            return (Join-Path $LibraryPath "$Id.$latestVersionString")
+        if ($Manifest.Packages.ContainsKey($Id.ToLowerInvariant()) -and 
+            $Manifest.Packages[$Id.ToLowerInvariant()].ContainsKey($LatestVersionString)) {
+            $Script:NugetLogger.Info("包 $Id 已是最新版本: $LatestVersionString")
+            return (Join-Path $LibraryPath $Id.ToLowerInvariant() $LatestVersionString)
         }
         
         # 安装最新版本
-        $Script:NugetLogger.Info("安装最新版本: $latestVersionString")
-        return Install-NugetPackage -Source $Source -Id $Id -Version $latestVersionString -LibraryPath $LibraryPath -Force
+        $Script:NugetLogger.Info("安装最新版本: $LatestVersionString")
+        return Install-NugetPackage -Source $Source -Id $Id -Version $LatestVersionString -LibraryPath $LibraryPath -Force
     }
     catch {
         $Script:NugetLogger.Error("更新包失败: $($_.Exception.Message)")
@@ -1201,6 +1143,7 @@ function Update-NugetPackage {
 }
 #endregion
 
+<#
 #region 测试代码
 $Script:NugetLogger.Scope("加载配置", {
         $Script:ConfigPath = Join-Path -Path $PSScriptRoot 'configs' 'infinity_nuget_config.json'
@@ -1218,20 +1161,24 @@ else {
 }
 
 # 读取包库清单
-$LibraryManifest = Read-NugetPackagLibraryManifest -Path $LibraryPath
-$Script:NugetLogger.Info("包库清单已加载，包含 $($LibraryManifest.Packages.Count) 个包")
+$LibraryManifest = Read-NugetPackageLibraryManifest -Path $LibraryPath
+$Script:NugetLogger.Info("包库清单已加载")
+
+
+# $Source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
 
 # 示例：安装一个包
- $source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
-# $packageDir = Install-NugetPackage -Source $source -Id "Newtonsoft.Json" -Version "13.0.1" -LibraryPath $LibraryPath
-
-# 示例：获取已安装的包
-# $installedPackages = Get-InstalledNugetPackages -LibraryPath $LibraryPath
-# $installedPackages | Format-Table -AutoSize
+# $PackageDir = Install-NugetPackage -Source $Source -Id "Newtonsoft.Json" -Version "13.0.1" -LibraryPath $LibraryPath
 
 # 示例：卸载一个包
-# $result = Uninstall-NugetPackage -Id "Newtonsoft.Json" -Version "13.0.1" -LibraryPath $LibraryPath
+# $Result = Uninstall-NugetPackage -Id "Newtonsoft.Json" -AllVersions -LibraryPath $LibraryPath
 
 # 示例：更新一个包
-# $updatedPackageDir = Update-NugetPackage -Source $source -Id "Newtonsoft.Json" -LibraryPath $LibraryPath
+# $UpdatedPackageDir = Update-NugetPackage -Source $Source -Id "Newtonsoft.Json" -LibraryPath $LibraryPath
+
+# 示例：获取已安装的包
+# $InstalledPackages = Get-InstalledNugetPackages -LibraryPath $LibraryPath
+# $InstalledPackages | Format-Table -AutoSize
+
 #endregion
+#>

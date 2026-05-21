@@ -4,7 +4,7 @@
     Author: YinBailiang
     Version: 1.0.0
 .SYNOPSIS
-    PowerShell 工具用于管理和打包 PowerShell 项目
+    Infinity Build 的核心模块, 用以进行项目的构建
 .DESCRIPTION
     这个工具提供以下功能：
     1. 管理项目
@@ -18,28 +18,43 @@ param(
     [string]$ConfigPath,
 
     [Parameter(Mandatory = $false)]
-    [switch]$Clean
+    [hashtable]$ExtraConfig
 )
 #endregion
 
+#region 检查
+$PSVersion = $PSVersionTable.PSVersion
+if ($PSVersion.Major -lt 7) {
+    Write-Error "需要 PowerShell 7.0 或更高版本，当前版本: $PSVersion"
+    Exit 1
+}
+if (-not (Test-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1') -PathType Leaf)){
+    Write-Error "未找到依赖 infinity_log.ps1 文件，无法继续"
+    Exit 2
+}
+#endregion
+
 #region 日志初始化
-. (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1')
+. (Join-Path $PSScriptRoot 'infinity_log.ps1')
 $Script:BuildLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityBuild")
 $Script:BuildLogger = [LogClient]::new($Script:BuildLoggerServer)
 #endregion
 
 #region 初始化
-$PSVersion = $PSVersionTable.PSVersion
-if ($PSVersion.Major -lt 7) {
-    $Script:BuildLogger.Error("需要 PowerShell 7.0 或更高版本，当前版本: $PSVersion")
-    throw "需要 PowerShell 7.0+"
-}
 $Script:BuildLogger.Info("PowerShell 版本: $PSVersion")
 
-$WorkFolder = Get-Location
-$CacheFolder = Join-Path $WorkFolder ".infinity_build"
+$Script:WorkFolder = (Get-Item -Path $ConfigPath).Directory
+$Script:CacheFolder = Join-Path -Path $Script:WorkFolder ".infinity_build"
 $Script:BuildLogger.Info("工作目录: $WorkFolder")
 $Script:BuildLogger.Info("缓存目录: $CacheFolder")
+
+if (-not (Test-Path -Path $ConfigPath -PathType Leaf)){
+    $Script:BuildLogger.Error("未找到配置文件: $ConfigPath")
+    throw "未找到配置文件: $ConfigPath"
+}else{
+    $Script:BuildLogger.Info("读取配置文件: $ConfigPath")
+    $Script:BuildConfig = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
+}
 
 # 确保缓存目录存在
 if (-not (Test-Path -Path $CacheFolder -PathType Container)) {
@@ -141,7 +156,7 @@ function Get-InfinityModule {
                     }
                 }
             }
-            if($Lines[$i].Trim().StartsWith('#>')){
+            if ($Lines[$i].Trim().StartsWith('#>')) {
                 $InfinityModule.Code.Add($Lines[$i].TrimEnd())
                 $InfinityModule.LineMappings[$InfinityModule.Code.Count] = $i + 1
             }
@@ -578,7 +593,9 @@ function Get-ResourceEmbedModule {
 #endregion
 
 #region 构建器模块
-function Build-InfinityModules {
+$Script:ModuleBuilders = @{}
+
+$Script:ModuleBuilders["Source"] = {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -595,7 +612,6 @@ function Build-InfinityModules {
     }
     return Get-InfinityModuleOrdered -Modules $Modules
 }
-
 function Build-ResourceEmbedModule {
     [CmdletBinding()]
     param(
@@ -612,7 +628,7 @@ function Build-ResourceEmbedModule {
     $ResourceFiles = Find-ResourceFiles -Path $ResourcePath
     $Script:BuildLogger.Info("找到 $($ResourceFiles.Count) 个资源文件")
 
-    if($ResourceFiles.Count -eq 0) {
+    if ($ResourceFiles.Count -eq 0) {
         $Script:BuildLogger.Error("没有找到任何资源文件，无法构建资源模块")
         throw "没有找到任何资源文件，无法构建资源模块"
     }
@@ -682,95 +698,38 @@ function Build-PreDefinedsModule {
     $Script:BuildLogger.Info("预定义变量模块生成完成: $($PreDefinedsModule.Code.Count) 个变量")
     return $PreDefinedsModule
 }
-#endregion
 
-#region 构建流程
-try {
-    # 读取构建配置
-    if (-not (Test-Path -Path $ConfigPath)) {
-        $Script:BuildLogger.Error("构建配置文件不存在: $ConfigPath")
-        throw "构建配置文件不存在: $ConfigPath"
-    }
+function Build-NugetModule {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+    . (Join-Path -Path $PSScriptRoot 'infinity_nuget.ps1')
     
-    try {
-        $Script:BuildLogger.Info("读取构建配置: $ConfigPath")
-        $BuildConfig = Get-Content -Path $ConfigPath -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-        $Script:BuildLogger.Info("构建配置读取成功")
-    }
-    catch {
-        $Script:BuildLogger.Error("加载构建配置失败: $($_.Exception.Message)")
-        throw
-    }
+    $Script:NugetLogger.Info("配置: $($Config | ConvertTo-Json -Depth 3)")
 
-    if ($Clean) {
-        $Script:BuildLogger.Info("正在清理缓存: $CacheFolder")
-        $Items = Get-ChildItem -Path $CacheFolder -Recurse
-        $Items | Remove-Item -Force
-        $Script:BuildLogger.Info("清理缓存项: $($Items.Count) 个")
-    }
-
-    $OrderedModules = [System.Collections.Generic.List[InfinityModule]](Build-InfinityModules -SourceConfig $BuildConfig.Source)
-    
-    if ($BuildConfig.Resource) {
-        $Script:BuildLogger.Info("构建资源嵌入模块")
-        $OrderedModules.Insert(0, (Build-ResourceEmbedModule -ResourceConfig $BuildConfig.Resource))
-    }
-    
-    if ($BuildConfig.PreDefineds) {
-        $Script:BuildLogger.Info("构建预定义变量模块")
-        $OrderedModules.Insert(0, (Build-PreDefinedsModule -Config $BuildConfig.PreDefineds))
-    }
-    
-    $Script:BuildLogger.Info("添加主启动模块")
-    $OrderedModules.Add([InfinityModule]@{
-        Name = "Builtin.MainStart"
-        Requires = [System.Collections.Generic.List[string]]::new()
-        Code = [System.Collections.Generic.List[string]]@(
-            'Invoke-Main $args'
-        )
-        SourceInfo = Get-Item -Path $PSCommandPath
-        LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
-    })
-
-    $ProgramSegment = New-InfinityProgramSegment -Modules $OrderedModules
-
-    $ProgramName = if ($BuildConfig.Name) {
-        $BuildConfig.Name
+    # 创建包库（如果不存在）
+    if (-not (Test-Path -Path $Config["PackagesPath"] -PathType Container)) {
+        $null = New-Item -Path $Config["PackagesPath"] -ItemType Directory
+        $LibraryPath = New-NugetPackageLibraryManifest -Path $Config["PackagesPath"]
     }
     else {
-        $Script:BuildLogger.Warn('未找到配置的名称，使用默认值: infinity_program')
-        "infinity_program"
+        $LibraryPath = (Get-Item -Path $Config["PackagesPath"]).FullName
     }
 
-    $OutputPath = Join-Path $WorkFolder "$($ProgramName).ps1"
+    $Source = New-NugetSource -Url $Config['Sources'][0]
 
-    $SegmentCodeSize = $([math]::Round(($ProgramSegment.Code.Length | Measure-Object -Sum).Sum / 1KB, 2))
-    $Script:BuildLogger.Info("生成程序文件 (文件大小: $SegmentCodeSize KB)")
-    $ProgramSegment.Code -join [System.Environment]::NewLine | Set-Content -Path $OutputPath -Encoding UTF8 -NoNewLine
-    $Script:BuildLogger.Info("程序文件已保存到: $OutputPath")
-
-    if ($BuildConfig.Mode.DevMode -eq "Debug") {
-        # 生成调试信息文件
-        $DebugInfoPath = Join-Path $WorkFolder "$($ProgramName).debug.json"
-        $DebugInfo = @()
-        foreach ($LineNum in $ProgramSegment.LineMappings.Keys) {
-            $SourceTuple = $ProgramSegment.LineMappings[$LineNum]
-            $DebugInfo += @{
-                OutputLine    = $LineNum
-                SourceFile    = $SourceTuple.Item1
-                SourceLineNum = $SourceTuple.Item2
-            }
-        }
-        $DebugData = $DebugInfo | ConvertTo-Json -Depth 3 -Compress
-        $Script:BuildLogger.Info("生成调试信息文件 (文件大小: $([math]::Round($DebugData.Length / 1KB, 2)) KB)")
-        Set-Content -Path $DebugInfoPath -Value $DebugData -Encoding UTF8 -NoNewLine
-        $Script:BuildLogger.Info("调试信息已保存到: $DebugInfoPath")
+    foreach($Id in $Config['Packs']){
+        $null = Update-NugetPackage -Source $Source -Id $Id -LibraryPath $LibraryPath
     }
-    
-    $Script:BuildLogger.Info("构建完成！")
-}
-catch {
-    $Script:BuildLogger.Error("构建失败: $($_.Exception.Message)")
-    throw
+
+    return [InfinityModule]@{
+        Name         = 'Builtin.Nuget'
+        Code         = [System.Collections.Generic.List[string]]::new()
+        Requires     = [System.Collections.Generic.List[string]]::new()
+        SourceInfo   = Get-Item -Path $PSCommandPath
+        LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
+    }
 }
 #endregion
