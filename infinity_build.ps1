@@ -839,6 +839,34 @@ $Script:ModuleBuilders["Nuget"] = {
     })
 }
 
+# ---- Boot 构建器 ----
+$Script:ModuleBuilders["Boot"] = {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+    $EntryPoint = if ($Config.ContainsKey("EntryPoint")) {
+        $Config["EntryPoint"]
+    } else {
+        $Script:BuildLogger.Warn("Boot 配置中缺少 'EntryPoint'，跳过启动模块生成")
+        return @()
+    }
+    
+    $Script:BuildLogger.Info("生成启动模块，入口函数: $EntryPoint")
+    
+    $BootCode = [System.Collections.Generic.List[string]]::new()
+    $BootCode.Add("$EntryPoint")
+    
+    return @([InfinityModule]@{
+        Name         = 'Builtin.Boot'
+        Code         = $BootCode
+        Requires     = [System.Collections.Generic.List[string]]::new()
+        SourceInfo   = Get-Item -Path $PSCommandPath
+        LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
+    })
+}
+
 # ---- PreDefineds 辅助函数 ----
 function Add-PreDefinedVariable {
     [CmdletBinding()]
@@ -899,8 +927,8 @@ if ($ExtraConfig) {
 # 收集所有模块
 $AllModules = [System.Collections.Generic.List[InfinityModule]]::new()
 
-# 定义构建步骤的处理顺序（Source 最先，因为用户模块可能被内置模块依赖）
-$StepOrder = @("Source", "Nuget", "PreDefineds", "Resource")
+# 定义构建步骤的处理顺序（Boot 最后，确保启动代码位于脚本末尾）
+$StepOrder = @("Nuget", "PreDefineds", "Resource", "Source", "Boot")
 
 foreach ($StepName in $StepOrder) {
     if (-not $BuildSteps.ContainsKey($StepName)) {
