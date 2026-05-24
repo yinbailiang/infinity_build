@@ -1106,7 +1106,7 @@ foreach ($Key in ($ProgramSegment.LineMappings.Keys | Sort-Object)) {
         SourceLineNum = $Mapping.Item2
     })
 }
-$DebugInfoList | ConvertTo-Json -Depth 2 | Set-Content -Path $DebugInfoPath -Encoding UTF8 -NoNewLine
+$DebugInfoList | ConvertTo-Json -Depth 2 -Compress | Set-Content -Path $DebugInfoPath -Encoding UTF8 -NoNewLine
 
 $OutputSize = (Get-Item $OutputPath).Length
 $Script:BuildLogger.Info("输出文件: $OutputPath ($([math]::Round($OutputSize / 1KB, 2)) KB)")
