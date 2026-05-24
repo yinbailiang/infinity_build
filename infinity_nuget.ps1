@@ -15,7 +15,12 @@
 #>
 
 #region 日志
-. (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1')
+# 避免重复加载导致类型重定义错误（当被 infinity_build.ps1 等模块引用时）
+$LogTypeDefined = $false
+try { $null = [LogType].FullName; $LogTypeDefined = $true } catch {}
+if (-not $LogTypeDefined) {
+    . (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1')
+}
 $Script:NugetLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityNuget")
 $Script:NugetLogger = [LogClient]::new($Script:NugetLoggerServer)
 #endregion

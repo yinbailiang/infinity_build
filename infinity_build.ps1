@@ -44,9 +44,7 @@ $Script:BuildLogger = [LogClient]::new($Script:BuildLoggerServer)
 $Script:BuildLogger.Info("PowerShell 版本: $PSVersion")
 
 $Script:WorkFolder = (Get-Item -Path $ConfigPath).Directory
-$Script:CacheFolder = Join-Path -Path $Script:WorkFolder ".infinity_build"
 $Script:BuildLogger.Info("工作目录: $WorkFolder")
-$Script:BuildLogger.Info("缓存目录: $CacheFolder")
 
 if (-not (Test-Path -Path $ConfigPath -PathType Leaf)){
     $Script:BuildLogger.Error("未找到配置文件: $ConfigPath")
@@ -55,6 +53,47 @@ if (-not (Test-Path -Path $ConfigPath -PathType Leaf)){
     $Script:BuildLogger.Info("读取配置文件: $ConfigPath")
     $Script:BuildConfig = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
 }
+
+# 从 System 节读取项目元信息
+$Script:BuildSystem = if ($Script:BuildConfig.ContainsKey("System")) {
+    $Script:BuildConfig["System"]
+} else { @{} }
+
+$Script:BuildName = if ($Script:BuildSystem.ContainsKey("Name")) {
+    $Script:BuildSystem["Name"]
+} else {
+    [System.IO.Path]::GetFileNameWithoutExtension($ConfigPath)
+}
+
+# 根据 System.Mode 调整日志级别
+if ($Script:BuildSystem.ContainsKey("Mode")) {
+    switch ($Script:BuildSystem["Mode"]) {
+        "Debug" {
+            $Script:BuildLoggerServer.LogLevel = [LogType]::LogDebug
+            $Script:BuildLogger.Info("构建模式: Debug（详细日志）")
+        }
+        "Release" {
+            $Script:BuildLoggerServer.LogLevel = [LogType]::LogInfo
+            $Script:BuildLogger.Info("构建模式: Release")
+        }
+        Default {
+            $Script:BuildLogger.Warn("未知的构建模式: $($Script:BuildSystem['Mode'])，使用 Debug")
+        }
+    }
+}
+
+# 确定缓存目录（优先使用 System.CacheDir）
+$Script:CacheFolder = if ($Script:BuildSystem.ContainsKey("CacheDir")) {
+    $CacheDir = $Script:BuildSystem["CacheDir"]
+    if (-not [System.IO.Path]::IsPathRooted($CacheDir)) {
+        Join-Path $Script:WorkFolder $CacheDir
+    } else {
+        $CacheDir
+    }
+} else {
+    Join-Path $Script:WorkFolder ".infinity_build"
+}
+$Script:BuildLogger.Info("缓存目录: $CacheFolder")
 
 # 确保缓存目录存在
 if (-not (Test-Path -Path $CacheFolder -PathType Container)) {
@@ -74,13 +113,27 @@ function Find-Files {
         [string[]]$Filters,
         
         [Parameter(Mandatory = $false)]
-        [string]$Path = $WorkFolder
+        [string]$Path = $Script:WorkFolder
     )
     
     $Script:BuildLogger.Debug("查找文件: 路径=$Path, 过滤器=$($Filters -join ', ')")
-    $FoundFiles = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    $FoundFiles = [System.Collections.Generic.List[string]]::new()
+    
     foreach ($Filter in $Filters) {
-        $Files = Get-ChildItem -Path $Path -Filter $Filter -File -ErrorAction SilentlyContinue
+        # 解析路径模式：将 "src/*.psm1" 拆分为目录 "src" 和文件过滤器 "*.psm1"
+        $LastSep = [Math]::Max($Filter.LastIndexOf('/'), $Filter.LastIndexOf('\'))
+        if ($LastSep -ge 0) {
+            $SubDir = $Filter.Substring(0, $LastSep)
+            $FileFilter = $Filter.Substring($LastSep + 1)
+            $SearchPath = Join-Path $Path $SubDir
+        }
+        else {
+            $FileFilter = $Filter
+            $SearchPath = $Path
+        }
+        
+        $Script:BuildLogger.Debug("  搜索路径: $SearchPath, 文件过滤器: $FileFilter")
+        $Files = Get-ChildItem -Path $SearchPath -Filter $FileFilter -File -ErrorAction SilentlyContinue
         foreach ($File in $Files) {
             $FoundFiles.Add($File.FullName)
         }
@@ -292,43 +345,6 @@ class ResourceFileInfo {
 class ResourceFileHash {
     [string]$RelativePath
     [string]$Hash256
-}
-
-function Find-ResourceFiles {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-    
-    $FileList = [System.Collections.Generic.List[ResourceFileInfo]]::new()
-    
-    # 检查Path是否存在
-    if (-not (Test-Path -Path $Path -PathType Container)) {
-        $Script:BuildLogger.Warn("资源目录不存在: $Path")
-        return $FileList.ToArray()
-    }
-    
-    $Script:BuildLogger.Info("查找资源文件: $Path")
-    # 查找所有Path下的子文件
-    $Files = Get-ChildItem -Path $Path -File -Recurse -ErrorAction SilentlyContinue
-
-    foreach ($File in $Files) {
-        try {
-            $RelativePath = Resolve-Path -Path $File -Relative -RelativeBasePath $Path
-            $FileInfo = [ResourceFileInfo]@{
-                FileInfo     = $File
-                RelativePath = $RelativePath
-            }
-            $FileList.Add($FileInfo)
-        }
-        catch {
-            $Script:BuildLogger.Warn("处理文件失败 '$($File.FullName)': $($_.Exception.Message)")
-        }
-    }
-    
-    $Script:BuildLogger.Info("找到 $($FileList.Count) 个资源文件")
-    return $FileList.ToArray()
 }
 
 function Get-ResourceSnapshot {
@@ -581,7 +597,7 @@ function Get-ResourceEmbedModule {
             SourceInfo   = Get-Item -Path $PSCommandPath
             LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
         }
-        $ModuleCodeSize = [math]::Round(($ResourceEmbedModule.Code.Length | Measure-Object -Sum).Sum / 1KB, 2)
+        $ModuleCodeSize = [math]::Round(($ResourceEmbedModule.Code | ForEach-Object { $_.Length } | Measure-Object -Sum).Sum / 1KB, 2)
         $Script:BuildLogger.Info("资源嵌入模块生成完成 (模块大小: $ModuleCodeSize KB)")
         return $ResourceEmbedModule
     }
@@ -599,9 +615,9 @@ $Script:ModuleBuilders["Source"] = {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [hashtable]$SourceConfig
+        [hashtable]$Config
     )
-    $SourceFiles = Find-Files -Filters $SourceConfig.Files
+    $SourceFiles = Find-Files -Filters $Config.Files
     $Script:BuildLogger.Info("找到 $($SourceFiles.Count) 个源文件")
     if ($SourceFiles.Count -eq 0) {
         $Script:BuildLogger.Warn("未找到任何源文件")
@@ -610,28 +626,98 @@ $Script:ModuleBuilders["Source"] = {
     $Modules = $SourceFiles | ForEach-Object {
         Get-InfinityModule -Path $_
     }
-    return Get-InfinityModuleOrdered -Modules $Modules
+    return @(Get-InfinityModuleOrdered -Modules $Modules)
 }
-function Build-ResourceEmbedModule {
+
+# ---- Resource 构建器 ----
+$Script:ModuleBuilders["Resource"] = {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [hashtable]$ResourceConfig,
-        
-        [Parameter()]
-        [switch]$Clean
+        [hashtable]$Config
     )
-    $ResourceZipPath = Join-Path $CacheFolder "resource.zip"
-    $ResourceSnapshotPath = Join-Path $CacheFolder "resource_snapshot.json"
-    $ResourcePath = $ResourceConfig.RootDir
-
-    $ResourceFiles = Find-ResourceFiles -Path $ResourcePath
-    $Script:BuildLogger.Info("找到 $($ResourceFiles.Count) 个资源文件")
-
-    if ($ResourceFiles.Count -eq 0) {
+    $ResourceZipPath = Join-Path $Script:CacheFolder "resource.zip"
+    $ResourceSnapshotPath = Join-Path $Script:CacheFolder "resource_snapshot.json"
+    
+    # 配置格式: { "Type": "Builtin", "resources": [ {source: dest}, ... ] }
+    $ResourceType = if ($Config.ContainsKey("Type")) { $Config["Type"] } else { "Builtin" }
+    if ($ResourceType -ne "Builtin") {
+        $Script:BuildLogger.Error("不支持的资源类型: $ResourceType")
+        throw "不支持的资源类型: $ResourceType"
+    }
+    
+    $ResourceMappings = if ($Config.ContainsKey("resources") -and $Config["resources"] -is [array]) {
+        $Config["resources"]
+    } else { @() }
+    
+    if ($ResourceMappings.Count -eq 0) {
+        $Script:BuildLogger.Warn("资源配置中没有资源映射，跳过资源构建")
+        return @()
+    }
+    
+    # 收集所有资源文件
+    $AllResourceFiles = [System.Collections.Generic.List[ResourceFileInfo]]::new()
+    
+    foreach ($Mapping in $ResourceMappings) {
+        if ($Mapping -isnot [hashtable] -or $Mapping.Count -eq 0) {
+            $Script:BuildLogger.Warn("跳过无效的资源映射条目")
+            continue
+        }
+        
+        foreach ($SourceRel in $Mapping.Keys) {
+            $DestPrefix = $Mapping[$SourceRel]
+            
+            # 解析源路径（相对于工作目录）
+            $SourcePath = if ([System.IO.Path]::IsPathRooted($SourceRel)) {
+                $SourceRel
+            } else {
+                Join-Path $Script:WorkFolder $SourceRel
+            }
+            
+            # 清理目标前缀
+            $DestPrefix = $DestPrefix -replace '^\.\\|^\./|\\$|/$', ''
+            $DestPrefix = $DestPrefix -replace '\\', '/'
+            
+            $Script:BuildLogger.Info("资源映射: $SourceRel -> $DestPrefix/")
+            
+            if (-not (Test-Path $SourcePath -PathType Container)) {
+                $Script:BuildLogger.Warn("资源源目录不存在: $SourcePath，跳过")
+                continue
+            }
+            
+            # 查找源目录下所有文件
+            $Files = Get-ChildItem -Path $SourcePath -File -Recurse -ErrorAction SilentlyContinue
+            foreach ($File in $Files) {
+                try {
+                    $FileRelativePath = Resolve-Path -Path $File -Relative -RelativeBasePath $SourcePath
+                    $FileRelativePath = $FileRelativePath -replace '^\.\\|^\./', ''
+                    $FileRelativePath = $FileRelativePath -replace '\\', '/'
+                    
+                    $ZipEntryPath = if ($DestPrefix) {
+                        "$DestPrefix/$FileRelativePath"
+                    } else {
+                        $FileRelativePath
+                    }
+                    
+                    $AllResourceFiles.Add([ResourceFileInfo]@{
+                        FileInfo     = $File
+                        RelativePath = $ZipEntryPath
+                    })
+                }
+                catch {
+                    $Script:BuildLogger.Warn("处理资源文件失败 '$($File.FullName)': $($_.Exception.Message)")
+                }
+            }
+        }
+    }
+    
+    if ($AllResourceFiles.Count -eq 0) {
         $Script:BuildLogger.Error("没有找到任何资源文件，无法构建资源模块")
         throw "没有找到任何资源文件，无法构建资源模块"
     }
+    
+    $ResourceFiles = $AllResourceFiles.ToArray()
+    $Script:BuildLogger.Info("共收集 $($ResourceFiles.Count) 个资源文件（来自 $($ResourceMappings.Count) 个源）")
 
     $CurrentSnapshot = Get-ResourceSnapshot -ResourceFiles $ResourceFiles
     $PreviousSnapshot = Read-ResourceSnapshot -Path $ResourceSnapshotPath
@@ -654,17 +740,19 @@ function Build-ResourceEmbedModule {
         $Script:BuildLogger.Info("资源未发生变化，使用缓存的资源压缩包")
     }
 
-    return Get-ResourceEmbedModule -ZipFilePath $ResourceZipPath
+    $Module = Get-ResourceEmbedModule -ZipFilePath $ResourceZipPath
+    return if ($Module) { @($Module) } else { @() }
 }
 
-function Build-PreDefinedsModule {
+# ---- PreDefineds 构建器 ----
+$Script:ModuleBuilders["PreDefineds"] = {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [hashtable]$Config
     )
 
-    $Script:BuildLogger.Info("生成预定义变量模块，包含 $($Config.Count) 个变量")
+    $Script:BuildLogger.Info("生成预定义变量模块")
     
     $PreDefinedsModule = [InfinityModule]@{
         Name         = 'Builtin.PreDefineds'
@@ -674,48 +762,66 @@ function Build-PreDefinedsModule {
         LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
     }
 
-    foreach ($Name in $Config.Keys) {
-        if ($Config[$Name] -is [string]) {
-            $PreDefinedsModule.Code.Add("`$$Name = '$($Config[$Name].Replace("'","''"))'")
+    # 配置格式: { "Default": true, "Defineds": [ {key: value}, ... ] }
+    $IncludeDefault = if ($Config.ContainsKey("Default")) { $Config["Default"] } else { $false }
+    $DefinedsList = if ($Config.ContainsKey("Defineds") -and $Config["Defineds"] -is [array]) {
+        $Config["Defineds"]
+    } else { @() }
+    
+    # 注入默认系统变量
+    if ($IncludeDefault) {
+        if ($Script:BuildSystem.ContainsKey("Name")) {
+            $PreDefinedsModule.Code.Add("`$BuildName = '$($Script:BuildSystem['Name'].Replace("'","''"))'")
         }
-        elseif ($Config[$Name] -is [int]) {
-            $PreDefinedsModule.Code.Add("`$$Name = $($Config[$Name].ToString())")
+        if ($Script:BuildSystem.ContainsKey("Version")) {
+            $PreDefinedsModule.Code.Add("`$BuildVersion = '$($Script:BuildSystem['Version'].Replace("'","''"))'")
         }
-        elseif ($Config[$Name] -is [bool]) {
-            if ($Config[$Name]) {
-                $PreDefinedsModule.Code.Add("`$$Name = `$true")
+        if ($Script:BuildSystem.ContainsKey("Mode")) {
+            $PreDefinedsModule.Code.Add("`$BuildMode = '$($Script:BuildSystem['Mode'].Replace("'","''"))'")
+        }
+        $Script:BuildLogger.Info("  已注入 $($PreDefinedsModule.Code.Count) 个默认系统变量")
+    }
+    
+    # 处理自定义变量列表
+    foreach ($Item in $DefinedsList) {
+        if ($Item -is [hashtable]) {
+            foreach ($Name in $Item.Keys) {
+                Add-PreDefinedVariable -Module $PreDefinedsModule -Name $Name -Value $Item[$Name]
             }
-            else {
-                $PreDefinedsModule.Code.Add("`$$Name = `$false")
-            }
-        }
-        else {
-            $Script:BuildLogger.Error("不支持的预定义变量类型: $Name -> $($Config[$Name].GetType())")
-            throw "不支持的预定义变量类型: $Name -> $($Config[$Name].GetType())"
         }
     }
     
     $Script:BuildLogger.Info("预定义变量模块生成完成: $($PreDefinedsModule.Code.Count) 个变量")
-    return $PreDefinedsModule
+    return @($PreDefinedsModule)
 }
 
-function Build-NugetModule {
+# ---- Nuget 构建器 ----
+$Script:ModuleBuilders["Nuget"] = {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [hashtable]$Config
     )
-    . (Join-Path -Path $PSScriptRoot 'infinity_nuget.ps1')
+    # 避免重复加载 nuget 模块（其中包含 infinity_log.ps1 的类型定义）
+    if (-not (Get-Command "New-NugetSource" -ErrorAction SilentlyContinue)) {
+        . (Join-Path -Path $PSScriptRoot 'infinity_nuget.ps1')
+    }
     
     $Script:NugetLogger.Info("配置: $($Config | ConvertTo-Json -Depth 3)")
 
+    # 解析包库路径（相对路径基于工作目录）
+    $PackagesPath = $Config["PackagesPath"]
+    if (-not [System.IO.Path]::IsPathRooted($PackagesPath)) {
+        $PackagesPath = Join-Path $Script:WorkFolder $PackagesPath
+    }
+
     # 创建包库（如果不存在）
-    if (-not (Test-Path -Path $Config["PackagesPath"] -PathType Container)) {
-        $null = New-Item -Path $Config["PackagesPath"] -ItemType Directory
-        $LibraryPath = New-NugetPackageLibraryManifest -Path $Config["PackagesPath"]
+    if (-not (Test-Path -Path $PackagesPath -PathType Container)) {
+        $null = New-Item -Path $PackagesPath -ItemType Directory
+        $LibraryPath = New-NugetPackageLibraryManifest -Path $PackagesPath
     }
     else {
-        $LibraryPath = (Get-Item -Path $Config["PackagesPath"]).FullName
+        $LibraryPath = (Get-Item -Path $PackagesPath).FullName
     }
 
     $Source = New-NugetSource -Url $Config['Sources'][0]
@@ -724,12 +830,167 @@ function Build-NugetModule {
         $null = Update-NugetPackage -Source $Source -Id $Id -LibraryPath $LibraryPath
     }
 
-    return [InfinityModule]@{
+    return @([InfinityModule]@{
         Name         = 'Builtin.Nuget'
         Code         = [System.Collections.Generic.List[string]]::new()
         Requires     = [System.Collections.Generic.List[string]]::new()
         SourceInfo   = Get-Item -Path $PSCommandPath
         LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
+    })
+}
+
+# ---- PreDefineds 辅助函数 ----
+function Add-PreDefinedVariable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [InfinityModule]$Module,
+        
+        [Parameter(Mandatory)]
+        [string]$Name,
+        
+        [Parameter(Mandatory)]
+        $Value
+    )
+    
+    if ($Value -is [string]) {
+        $Module.Code.Add("`$$Name = '$($Value.Replace("'","''"))'")
+    }
+    elseif ($Value -is [int] -or $Value -is [long] -or $Value -is [double]) {
+        $Module.Code.Add("`$$Name = $($Value.ToString())")
+    }
+    elseif ($Value -is [bool]) {
+        $Module.Code.Add("`$$Name = `$" + ($Value ? "true" : "false"))
+    }
+    else {
+        $Script:BuildLogger.Error("不支持的预定义变量类型: $Name -> $($Value.GetType())")
+        throw "不支持的预定义变量类型: $Name -> $($Value.GetType())"
     }
 }
+#endregion
+
+#region 主构建流程
+$Script:BuildLogger.Info("=== Infinity Build 开始 ===")
+
+# 从顶层键解析构建步骤（排除 System 元信息键）
+$BuildSteps = @{}
+$MetaKeys = @("System")
+foreach ($Key in $Script:BuildConfig.Keys) {
+    if ($Key -notin $MetaKeys) {
+        $BuildSteps[$Key] = $Script:BuildConfig[$Key]
+    }
+}
+
+if ($BuildSteps.Count -eq 0) {
+    $Script:BuildLogger.Error("未找到任何构建步骤")
+    throw "未找到任何构建步骤"
+}
+
+$Script:BuildLogger.Info("构建步骤: $($BuildSteps.Keys -join ', ')")
+
+# 合并 ExtraConfig 到构建步骤（如果调用者提供了额外配置）
+if ($ExtraConfig) {
+    $Script:BuildLogger.Info("应用额外配置: $($ExtraConfig.Keys -join ', ')")
+    foreach ($Key in $ExtraConfig.Keys) {
+        $BuildSteps[$Key] = $ExtraConfig[$Key]
+    }
+}
+
+# 收集所有模块
+$AllModules = [System.Collections.Generic.List[InfinityModule]]::new()
+
+# 定义构建步骤的处理顺序（Source 最先，因为用户模块可能被内置模块依赖）
+$StepOrder = @("Source", "Nuget", "PreDefineds", "Resource")
+
+foreach ($StepName in $StepOrder) {
+    if (-not $BuildSteps.ContainsKey($StepName)) {
+        continue
+    }
+    
+    # 查表：跳过未注册的构建器
+    if (-not $Script:ModuleBuilders.ContainsKey($StepName)) {
+        $Script:BuildLogger.Warn("未注册的构建步骤: $StepName，已跳过")
+        continue
+    }
+    
+    $StepConfig = $BuildSteps[$StepName]
+    
+    # Nuget 特殊处理：Packs 为空时跳过（避免空包列表触发不必要的网络请求）
+    if ($StepName -eq "Nuget") {
+        $Packs = if ($StepConfig.ContainsKey("Packs") -and $StepConfig["Packs"] -is [array]) {
+            $StepConfig["Packs"]
+        } else { @() }
+        if ($Packs.Count -eq 0) {
+            $Script:BuildLogger.Info("Nuget.Packs 为空，跳过 Nuget 步骤")
+            continue
+        }
+    }
+    
+    $Script:BuildLogger.MeasureScope("构建步骤: $StepName", {
+        # 统一查表调用
+        $Result = & $Script:ModuleBuilders[$StepName] -Config $StepConfig
+        if ($Result) {
+            foreach ($Module in $Result) {
+                $AllModules.Add($Module)
+            }
+        }
+    })
+}
+
+$Script:BuildLogger.Info("共生成 $($AllModules.Count) 个模块")
+
+if ($AllModules.Count -eq 0) {
+    $Script:BuildLogger.Error("未生成任何模块，构建终止")
+    throw "未生成任何模块，构建终止"
+}
+
+# 生成程序段
+$ProgramSegment = New-InfinityProgramSegment -Modules $AllModules.ToArray()
+
+# 确定输出路径（优先使用 Output 配置，其次使用 System.Name）
+$OutputPath = if ($Script:BuildConfig.ContainsKey("Output")) {
+    $Script:BuildConfig["Output"]
+}
+elseif ($Script:BuildName) {
+    "$($Script:BuildName).ps1"
+}
+else {
+    "output.ps1"
+}
+
+# 相对路径转绝对路径
+if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
+    $OutputPath = Join-Path $Script:WorkFolder $OutputPath
+}
+
+# 确保输出目录存在
+$OutputDir = Split-Path $OutputPath -Parent
+if ($OutputDir -and -not (Test-Path $OutputDir)) {
+    $null = New-Item -Path $OutputDir -ItemType Directory -Force
+    $Script:BuildLogger.Info("创建输出目录: $OutputDir")
+}
+
+# 写入输出脚本
+$Script:BuildLogger.Info("写入输出脚本: $OutputPath")
+$ProgramSegment.Code | Set-Content -Path $OutputPath -Encoding UTF8
+
+# 生成并写入调试映射文件（供 infinity_dbg.ps1 使用）
+$DebugInfoPath = [System.IO.Path]::ChangeExtension($OutputPath, ".debug.json")
+$Script:BuildLogger.Info("写入调试信息: $DebugInfoPath")
+
+$DebugInfoList = [System.Collections.Generic.List[hashtable]]::new()
+foreach ($Key in ($ProgramSegment.LineMappings.Keys | Sort-Object)) {
+    $Mapping = $ProgramSegment.LineMappings[$Key]
+    $DebugInfoList.Add(@{
+        OutputLine    = $Key
+        SourceFile    = $Mapping.Item1
+        SourceLineNum = $Mapping.Item2
+    })
+}
+$DebugInfoList | ConvertTo-Json -Depth 2 | Set-Content -Path $DebugInfoPath -Encoding UTF8 -NoNewLine
+
+$OutputSize = (Get-Item $OutputPath).Length
+$Script:BuildLogger.Info("=== Infinity Build 完成 ===")
+$Script:BuildLogger.Info("输出文件: $OutputPath ($([math]::Round($OutputSize / 1KB, 2)) KB)")
+$Script:BuildLogger.Info("调试文件: $DebugInfoPath")
 #endregion
