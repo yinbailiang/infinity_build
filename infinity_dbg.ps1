@@ -14,32 +14,18 @@
 
 #region 输入参数
 param (
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$ScriptPath,
-
-    [Parameter(Mandatory = $false)]
-    [string[]]$ArgumentList = @()
+    [string]$ScriptPath
 )
 #endregion
 
 #region 日志
-. (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_log.ps1')
+if (-not $Script:LogLoaded){
+    . (Join-Path $PSScriptRoot 'infinity_log.ps1')
+}
 $Script:DbgLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityDbg")
 $Script:DbgLogger = [LogClient]::new($Script:DbgLoggerServer)
 #endregion
 
-#region 启动虚拟环境
-if (-not $Env:InInfinityDbgEnv) {
-    $Script:DbgLogger.Info("进入虚拟环境")
-    if ($ArgumentList.Count -ne 0){
-        pwsh -CommandWithArgs "`$Env:InInfinityDbgEnv = `$True; . $PSCommandPath @args" "-ScriptPath" $ScriptPath "-ArgumentList" $ArgumentList 
-    }else{
-        pwsh -CommandWithArgs "`$Env:InInfinityDbgEnv = `$True; . $PSCommandPath @args" "-ScriptPath" $ScriptPath 
-    }
-    exit
-}
-#endregion
 
 #region 初始化
 if (-not (Test-Path -Path $ScriptPath -PathType Leaf)) {
@@ -75,14 +61,8 @@ else {
 #region 主逻辑
 try {
     $Script:DbgLogger.Info("开始执行程序")
-        
-    # 显示传入的参数
-    if ($ArgumentList.Count -gt 0) {
-        $Script:DbgLogger.Info("参数列表: $($ArgumentList -join ' ')")
-    }
-        
     # 执行脚本
-    & $ProgramPath @ArgumentList
+    . $ProgramPath @args
 }
 catch {
     $ErrorMessage = $_.Exception.Message

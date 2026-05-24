@@ -13,6 +13,9 @@
     5. 灵活的日志配置
     6. 结构化日志记录
 #>
+
+$Script:LogLoaded = $true
+
 enum LogType {
     LogErr = 0      # 错误
     LogWarn = 1     # 警告

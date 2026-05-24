@@ -35,7 +35,9 @@ if (-not (Test-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_lo
 #endregion
 
 #region 日志初始化
-. (Join-Path $PSScriptRoot 'infinity_log.ps1')
+if (-not $Script:LogLoaded){
+    . (Join-Path $PSScriptRoot 'infinity_log.ps1')
+}
 $Script:BuildLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityBuild")
 $Script:BuildLogger = [LogClient]::new($Script:BuildLoggerServer)
 #endregion
@@ -629,7 +631,6 @@ $Script:ModuleBuilders["Source"] = {
     return @(Get-InfinityModuleOrdered -Modules $Modules)
 }
 
-# ---- Resource 构建器 ----
 $Script:ModuleBuilders["Resource"] = {
     [CmdletBinding()]
     param(
@@ -641,7 +642,7 @@ $Script:ModuleBuilders["Resource"] = {
     
     # 配置格式: { "Type": "Builtin", "resources": [ {source: dest}, ... ] }
     $ResourceType = if ($Config.ContainsKey("Type")) { $Config["Type"] } else { "Builtin" }
-    if ($ResourceType -ne "Builtin") {
+    if ($ResourceType -notin @("Builtin", "External")) {
         $Script:BuildLogger.Error("不支持的资源类型: $ResourceType")
         throw "不支持的资源类型: $ResourceType"
     }
@@ -739,12 +740,51 @@ $Script:ModuleBuilders["Resource"] = {
         $Script:BuildLogger.Info("资源未发生变化，使用缓存的资源压缩包")
     }
 
-    $Module = Get-ResourceEmbedModule -ZipFilePath $ResourceZipPath
-    $Ret = if ($Module) { @($Module) } else { @() }
-    return $Ret
+    if ($ResourceType -eq "Builtin") {
+        $Module = Get-ResourceEmbedModule -ZipFilePath $ResourceZipPath
+        $Ret = if ($Module) { @($Module) } else { @() }
+        return $Ret
+    }
+    elseif ($ResourceType -eq "External") {
+        # 解析外部输出目录
+        $ExternalOutputDir = if ($Config.ContainsKey("OutputDir")) {
+            $OutDir = $Config["OutputDir"]
+            if (-not [System.IO.Path]::IsPathRooted($OutDir)) {
+                Join-Path $Script:WorkFolder $OutDir
+            } else {
+                $OutDir
+            }
+        } else {
+            $Script:WorkFolder
+        }
+
+        # 解析外部输出文件名（默认: <构建名>-resources.zip）
+        $ExternalOutputName = if ($Config.ContainsKey("OutputName")) {
+            $Config["OutputName"]
+        } else {
+            "$Script:BuildName-resources.zip"
+        }
+
+        # 确保 .zip 扩展名
+        if ($ExternalOutputName -notmatch '\.zip$') {
+            $ExternalOutputName += '.zip'
+        }
+
+        $ExternalOutputPath = Join-Path $ExternalOutputDir $ExternalOutputName
+
+        # 确保输出目录存在
+        if (-not (Test-Path $ExternalOutputDir -PathType Container)) {
+            $null = New-Item -Path $ExternalOutputDir -ItemType Directory -Force
+            $Script:BuildLogger.Info("创建外部资源输出目录: $ExternalOutputDir")
+        }
+
+        Copy-Item -Path $ResourceZipPath -Destination $ExternalOutputPath -Force
+        $Script:BuildLogger.Info("资源包已复制到外部路径: $ExternalOutputPath")
+
+        return @()
+    }
 }
 
-# ---- PreDefineds 构建器 ----
 $Script:ModuleBuilders["PreDefineds"] = {
     [CmdletBinding()]
     param(
@@ -795,7 +835,6 @@ $Script:ModuleBuilders["PreDefineds"] = {
     return @($PreDefinedsModule)
 }
 
-# ---- Nuget 构建器 ----
 $Script:ModuleBuilders["Nuget"] = {
     [CmdletBinding()]
     param(
@@ -839,7 +878,6 @@ $Script:ModuleBuilders["Nuget"] = {
     })
 }
 
-# ---- Boot 构建器 ----
 $Script:ModuleBuilders["Boot"] = {
     [CmdletBinding()]
     param(
@@ -863,7 +901,7 @@ $Script:ModuleBuilders["Boot"] = {
     $Script:BuildLogger.Info("生成启动模块，入口函数: $EntryPoint")
     
     $BootCode = [System.Collections.Generic.List[string]]::new()
-    $BootCode.Add("$EntryPoint `$args")
+    $BootCode.Add("$EntryPoint @args")
     
     return @([InfinityModule]@{
         Name         = 'Builtin.Boot'
@@ -1022,7 +1060,6 @@ foreach ($Key in ($ProgramSegment.LineMappings.Keys | Sort-Object)) {
 $DebugInfoList | ConvertTo-Json -Depth 2 | Set-Content -Path $DebugInfoPath -Encoding UTF8 -NoNewLine
 
 $OutputSize = (Get-Item $OutputPath).Length
-$Script:BuildLogger.Info("=== Infinity Build 完成 ===")
 $Script:BuildLogger.Info("输出文件: $OutputPath ($([math]::Round($OutputSize / 1KB, 2)) KB)")
 $Script:BuildLogger.Info("调试文件: $DebugInfoPath")
 #endregion
