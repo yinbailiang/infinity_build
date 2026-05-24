@@ -301,66 +301,6 @@ function Get-InfinityModuleOrdered {
     return $SortedModules
 }
 
-function Remove-UnreferencedModules {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [InfinityModule[]]$Modules
-    )
-    
-    $Script:BuildLogger.Info("剪除未被引用的模块（$($Modules.Count) 个候选）")
-    
-    # 构建名称→模块的映射
-    $ModuleMap = [System.Collections.Generic.Dictionary[string, InfinityModule]]::new()
-    foreach ($Module in $Modules) {
-        $ModuleMap[$Module.Name] = $Module
-    }
-    
-    # 入口模块：所有内置模块 (Builtin.*)
-    $Reachable = [System.Collections.Generic.HashSet[string]]::new()
-    $Queue = [System.Collections.Generic.Queue[string]]::new()
-    
-    foreach ($Module in $Modules) {
-        if ($Module.Name.StartsWith('Builtin.')) {
-            $Reachable.Add($Module.Name) | Out-Null
-            $Queue.Enqueue($Module.Name)
-        }
-    }
-    
-    # BFS 沿依赖图传播可达性
-    while ($Queue.Count -gt 0) {
-        $Current = $Queue.Dequeue()
-        if (-not $ModuleMap.ContainsKey($Current)) { continue }
-        
-        foreach ($DepName in $ModuleMap[$Current].Requires) {
-            if ($Reachable.Add($DepName)) {
-                $Queue.Enqueue($DepName)
-            }
-        }
-    }
-    
-    # 收集被剪除的模块
-    $Pruned = [System.Collections.Generic.List[string]]::new()
-    $Kept = [System.Collections.Generic.List[InfinityModule]]::new()
-    
-    foreach ($Module in $Modules) {
-        if ($Reachable.Contains($Module.Name)) {
-            $Kept.Add($Module)
-        } else {
-            $Pruned.Add($Module.Name)
-        }
-    }
-    
-    if ($Pruned.Count -gt 0) {
-        $Script:BuildLogger.Info("已剪除 $($Pruned.Count) 个未被引用的模块: $($Pruned -join ', ')")
-    } else {
-        $Script:BuildLogger.Info("无模块被剪除")
-    }
-    
-    $Script:BuildLogger.Info("保留 $($Kept.Count) 个模块")
-    return $Kept.ToArray()
-}
-
 class InfinityProgramSegment {
     [System.Collections.Generic.List[string]]$Code
     [System.Collections.Generic.Dictionary[int, System.Tuple[string, int]]]$LineMappings
@@ -1030,14 +970,6 @@ $Script:BuildLogger.Info("共生成 $($AllModules.Count) 个模块")
 if ($AllModules.Count -eq 0) {
     $Script:BuildLogger.Error("未生成任何模块，构建终止")
     throw "未生成任何模块，构建终止"
-}
-
-# 剪除未被任何入口模块（Builtin.*）引用链触及的模块
-$AllModules = [System.Collections.Generic.List[InfinityModule]]::new(@(Remove-UnreferencedModules -Modules $AllModules.ToArray()))
-
-if ($AllModules.Count -eq 0) {
-    $Script:BuildLogger.Error("剪枝后无剩余模块，构建终止")
-    throw "剪枝后无剩余模块，构建终止"
 }
 
 # 对所有模块进行拓扑排序（内置模块无依赖故排在前，Boot 依赖指定模块故排在其后）
