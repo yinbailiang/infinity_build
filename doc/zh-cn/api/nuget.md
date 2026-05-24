@@ -13,14 +13,14 @@
 #### 属性
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `Version` | `string` | 包源的协议版本号 |
 | `ServiceEndpoints` | `hashtable` | 服务端点字典，Key 为服务类型，Value 为端点 URL |
 
 常见服务端点类型：
 
 | Key | 说明 |
-|-----|------|
+| - | - |
 | `SearchQueryService` | 搜索服务 |
 | `SearchQueryService/3.5.0` | 搜索服务（支持包类型筛选） |
 | `PackageBaseAddress/3.0.0` | 包下载基础地址 |
@@ -31,7 +31,7 @@
 表示本地包库清单。
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `Packages` | `hashtable` | 包字典，Key 为包 ID（小写），Value 为版本信息字典 |
 
 ---
@@ -49,7 +49,7 @@ New-NugetSource -Url $Url
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-Url` | `string` | 是 | NuGet 包源索引 URL，如 `https://api.nuget.org/v3/index.json` |
 
 **返回**：`NugetSource`
@@ -75,7 +75,7 @@ Search-NugetPackage -Source $Source -Query $Query [-Take $Take] [-Skip $Skip] [-
 ```
 
 | 参数 | 类型 | 必选 | 默认值 | 说明 |
-|------|------|------|--------|------|
+| - | - | - | - | - |
 | `-Source` | `NugetSource` | 是 | — | 已初始化的包源对象 |
 | `-Query` | `string` | 是 | — | 搜索关键词，支持管道输入 |
 | `-Take` | `int` | 否 | `20` | 返回结果数量（1~1000） |
@@ -107,13 +107,13 @@ ConvertTo-NuGetVersion -VersionString $Version
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-VersionString` | `string` | 是 | 版本号字符串，支持管道输入 |
 
 **返回**：`hashtable`（有序字典），包含以下键：
 
 | 键 | 类型 | 说明 |
-|-----|------|------|
+| - | - | - |
 | `OriginalVersion` | `string` | 原始输入版本号 |
 | `NormalizedVersion` | `string` | NuGet 归一化版本号 |
 | `Major` | `int` | 主版本号 |
@@ -146,7 +146,7 @@ Get-NugetPackageVersions -Source $Source -Id $Id [-Preview]
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-Source` | `NugetSource` | 是 | 已初始化的包源对象 |
 | `-Id` | `string` | 是 | 包 ID |
 | `-Preview` | `switch` | 否 | 是否包含预发布版本，默认仅稳定版 |
@@ -176,7 +176,7 @@ Get-NugetPackagManifest -Source $Source -Id $Id -Version $Version
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-Source` | `NugetSource` | 是 | 已初始化的包源对象 |
 | `-Id` | `string` | 是 | 包 ID |
 | `-Version` | `string` | 是 | 包版本号 |
@@ -243,7 +243,7 @@ Install-NugetPackage -Source $Source -Id $Id -Version $Version -LibraryPath $Pat
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-Source` | `NugetSource` | 是 | 包源对象 |
 | `-Id` | `string` | 是 | 包 ID |
 | `-Version` | `string` | 是 | 包版本 |
@@ -286,7 +286,7 @@ Update-NugetPackage -Source $Source -Id $Id -LibraryPath $Path [-IncludePrerelea
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-IncludePrerelease` | `switch` | 否 | 包含预发布版本 |
 
 **返回**：`string` — 更新后的包目录路径。

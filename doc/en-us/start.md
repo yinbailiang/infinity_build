@@ -36,7 +36,7 @@ Infinity Build consists of four core modules, each providing an independent Powe
 ### Module Overview
 
 | Module | File | Purpose |
-|--------|------|---------|
+| - | - | - |
 | Logging | `infinity_log.ps1` | Multi-level colored log output, structured logging |
 | Build System | `infinity_build.ps1` | Module parsing, topological sorting, resource packaging, program generation |
 | NuGet Management | `infinity_nuget.ps1` | Package search, download, install, uninstall, update |

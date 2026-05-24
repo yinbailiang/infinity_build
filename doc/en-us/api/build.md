@@ -7,7 +7,7 @@
 ## Parameters
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-ConfigPath` | `string` | Yes | JSON path to the build configuration file |
 | `-ExtraConfig` | `hashtable` | No | Additional build step config, merged into config file steps |
 
@@ -25,7 +25,7 @@
 Represents a parsed code module.
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `Name` | `string` | Module name |
 | `Requires` | `List[string]` | List of dependent module names |
 | `Code` | `List[string]` | Module code lines |
@@ -37,7 +37,7 @@ Represents a parsed code module.
 Represents a complete program segment (merged from multiple modules).
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `Code` | `List[string]` | All merged code lines |
 | `LineMappings` | `Dictionary[int, Tuple[string, int]]` | Output line → (source file path, source line) mapping |
 
@@ -46,7 +46,7 @@ Represents a complete program segment (merged from multiple modules).
 Resource file information.
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `FileInfo` | `FileInfo` | File system info |
 | `RelativePath` | `string` | Relative path within the resource package |
 
@@ -55,7 +55,7 @@ Resource file information.
 Resource file hash record.
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `RelativePath` | `string` | Relative path within the resource package |
 | `Hash256` | `string` | SHA256 hash of the file |
 
@@ -74,7 +74,7 @@ Find-Files -Filters $Filters [-Path $Path]
 ```
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+| - | - | - | - | - |
 | `-Filters` | `string[]` | Yes | — | File filter array, e.g., `@("src/*.ps1", "lib/**/*.psm1")` |
 | `-Path` | `string` | No | Working directory | Search root directory |
 
@@ -93,7 +93,7 @@ Get-InfinityModule -Path $Path
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-Path` | `string` | Yes | Source file path |
 
 **Returns**: `InfinityModule` — Parsed module object.
@@ -101,7 +101,7 @@ Get-InfinityModule -Path $Path
 **Preprocessor Directives:**
 
 | Directive | Description |
-|-----------|-------------|
+| - | - |
 | `## Module <name>` | Declare module name (overrides filename) |
 | `## Import <module>` | Declare dependency on another module |
 | `#infb: rm` | Remove this line during build |
@@ -118,7 +118,7 @@ Get-InfinityModuleOrdered -Modules $Modules
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-Modules` | `InfinityModule[]` | Yes | Module array to sort |
 
 **Returns**: `InfinityModule[]` — Modules sorted by dependency order (dependencies first).
@@ -177,7 +177,7 @@ Compress-ResourceFiles -ResourceFiles $Files -DestinationPath $Dest [-Compressio
 ```
 
 | Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
+| - | - | - | - |
 | `-CompressionLevel` | `CompressionLevel` | `Optimal` | Compression level |
 | `-Force` | `switch` | — | Overwrite existing ZIP file |
 
@@ -198,7 +198,7 @@ Get-ResourceEmbedModule -ZipFilePath $ZipPath
 The build system is driven by a **module builder dictionary**, where each build step corresponds to a builder script block.
 
 | Build Step | Description |
-|------------|-------------|
+| - | - |
 | `Source` | Parse source files into modules, topological sort |
 | `Resource` | Collect and incrementally package resource files |
 | `PreDefineds` | Generate predefined variable module |
@@ -214,7 +214,7 @@ Add-PreDefinedVariable -Module $Module -Name $Name -Value $Value
 ```
 
 | Parameter | Type | Description |
-|-----------|------|-------------|
+| - | - | - |
 | `-Value` | `string` / `int` / `bool` | Variable value, supports three basic types |
 
 ---
@@ -224,7 +224,7 @@ Add-PreDefinedVariable -Module $Module -Name $Name -Value $Value
 Two files are generated after a successful build:
 
 | File | Description |
-|------|-------------|
+| - | - |
 | `<Output>.ps1` | The final merged script (standalone executable) |
 | `<Output>.debug.json` | Debug mapping file for `infinity_dbg.ps1` |
 

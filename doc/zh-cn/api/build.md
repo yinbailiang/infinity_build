@@ -7,7 +7,7 @@
 ## 参数
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-ConfigPath` | `string` | 是 | 构建配置文件的 JSON 路径 |
 | `-ExtraConfig` | `hashtable` | 否 | 额外的构建步骤配置，会合并到配置文件中的步骤 |
 
@@ -25,7 +25,7 @@
 表示一个已解析的代码模块。
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `Name` | `string` | 模块名称 |
 | `Requires` | `List[string]` | 依赖的模块名列表 |
 | `Code` | `List[string]` | 模块代码行列表 |
@@ -37,7 +37,7 @@
 表示一个完整的程序段（由多个模块合并而成）。
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `Code` | `List[string]` | 合并后的全部代码行 |
 | `LineMappings` | `Dictionary[int, Tuple[string, int]]` | 输出行号 → (源文件路径, 源行号) 映射 |
 
@@ -46,7 +46,7 @@
 资源文件信息。
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `FileInfo` | `FileInfo` | 文件系统信息 |
 | `RelativePath` | `string` | 在资源包中的相对路径 |
 
@@ -55,7 +55,7 @@
 资源文件哈希记录。
 
 | 属性 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `RelativePath` | `string` | 资源包内的相对路径 |
 | `Hash256` | `string` | 文件的 SHA256 哈希值 |
 
@@ -74,7 +74,7 @@ Find-Files -Filters $Filters [-Path $Path]
 ```
 
 | 参数 | 类型 | 必选 | 默认值 | 说明 |
-|------|------|------|--------|------|
+| - | - | - | - | - |
 | `-Filters` | `string[]` | 是 | — | 文件过滤器数组，如 `@("src/*.ps1", "lib/**/*.psm1")` |
 | `-Path` | `string` | 否 | 工作目录 | 搜索根目录 |
 
@@ -93,7 +93,7 @@ Get-InfinityModule -Path $Path
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-Path` | `string` | 是 | 源文件路径 |
 
 **返回**：`InfinityModule` — 解析后的模块对象。
@@ -101,7 +101,7 @@ Get-InfinityModule -Path $Path
 **预处理指令：**
 
 | 指令 | 说明 |
-|------|------|
+| - | - |
 | `## Module <名称>` | 声明模块名（覆盖文件名） |
 | `## Import <模块>` | 声明对其他模块的依赖 |
 | `#infb: rm` | 构建时移除此行 |
@@ -118,7 +118,7 @@ Get-InfinityModuleOrdered -Modules $Modules
 ```
 
 | 参数 | 类型 | 必选 | 说明 |
-|------|------|------|------|
+| - | - | - | - |
 | `-Modules` | `InfinityModule[]` | 是 | 待排序的模块数组 |
 
 **返回**：`InfinityModule[]` — 按依赖顺序排列的模块数组（被依赖者在前）。
@@ -177,7 +177,7 @@ Compress-ResourceFiles -ResourceFiles $Files -DestinationPath $Dest [-Compressio
 ```
 
 | 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
+| - | - | - | - |
 | `-CompressionLevel` | `CompressionLevel` | `Optimal` | 压缩级别 |
 | `-Force` | `switch` | — | 覆盖已存在的 ZIP 文件 |
 
@@ -198,7 +198,7 @@ Get-ResourceEmbedModule -ZipFilePath $ZipPath
 构建系统通过**模块构建器字典**驱动，每个构建步骤对应一个构建器脚本块。
 
 | 构建步骤 | 说明 |
-|----------|------|
+| - | - |
 | `Source` | 解析源文件为模块，拓扑排序 |
 | `Resource` | 收集、增量打包资源文件 |
 | `PreDefineds` | 生成预定义变量模块 |
@@ -214,7 +214,7 @@ Add-PreDefinedVariable -Module $Module -Name $Name -Value $Value
 ```
 
 | 参数 | 类型 | 说明 |
-|------|------|------|
+| - | - | - |
 | `-Value` | `string` / `int` / `bool` | 变量值，支持三种基本类型 |
 
 ---
@@ -224,7 +224,7 @@ Add-PreDefinedVariable -Module $Module -Name $Name -Value $Value
 构建完成后生成两个文件：
 
 | 文件 | 说明 |
-|------|------|
+| - | - |
 | `<Output>.ps1` | 最终的合并脚本（可独立运行） |
 | `<Output>.debug.json` | 调试映射文件，供 `infinity_dbg.ps1` 使用 |
 

@@ -13,14 +13,14 @@ Represents a NuGet package source, storing version and service endpoint informat
 #### Properties
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `Version` | `string` | Protocol version of the package source |
 | `ServiceEndpoints` | `hashtable` | Service endpoint dictionary, Key is service type, Value is endpoint URL |
 
 Common service endpoint types:
 
 | Key | Description |
-|-----|-------------|
+| - | - |
 | `SearchQueryService` | Search service |
 | `SearchQueryService/3.5.0` | Search service (with package type filtering) |
 | `PackageBaseAddress/3.0.0` | Package download base address |
@@ -31,7 +31,7 @@ Common service endpoint types:
 Represents a local package library manifest.
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `Packages` | `hashtable` | Package dictionary, Key is package ID (lowercase), Value is version info dictionary |
 
 ---
@@ -49,7 +49,7 @@ New-NugetSource -Url $Url
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-Url` | `string` | Yes | NuGet source index URL, e.g., `https://api.nuget.org/v3/index.json` |
 
 **Returns**: `NugetSource`
@@ -75,7 +75,7 @@ Search-NugetPackage -Source $Source -Query $Query [-Take $Take] [-Skip $Skip] [-
 ```
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+| - | - | - | - | - |
 | `-Source` | `NugetSource` | Yes | — | Initialized package source |
 | `-Query` | `string` | Yes | — | Search keyword, supports pipeline input |
 | `-Take` | `int` | No | `20` | Number of results (1~1000) |
@@ -107,13 +107,13 @@ ConvertTo-NuGetVersion -VersionString $Version
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-VersionString` | `string` | Yes | Version string, supports pipeline input |
 
 **Returns**: `hashtable` (ordered), containing:
 
 | Key | Type | Description |
-|-----|------|-------------|
+| - | - | - |
 | `OriginalVersion` | `string` | Original input version string |
 | `NormalizedVersion` | `string` | NuGet normalized version |
 | `Major` | `int` | Major version number |
@@ -146,7 +146,7 @@ Get-NugetPackageVersions -Source $Source -Id $Id [-Preview]
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-Source` | `NugetSource` | Yes | Initialized package source |
 | `-Id` | `string` | Yes | Package ID |
 | `-Preview` | `switch` | No | Include prerelease versions, default is stable only |
@@ -237,7 +237,7 @@ Install-NugetPackage -Source $Source -Id $Id -Version $Version -LibraryPath $Pat
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-Source` | `NugetSource` | Yes | Package source object |
 | `-Id` | `string` | Yes | Package ID |
 | `-Version` | `string` | Yes | Package version |
@@ -280,7 +280,7 @@ Update-NugetPackage -Source $Source -Id $Id -LibraryPath $Path [-IncludePrerelea
 ```
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-IncludePrerelease` | `switch` | No | Include prerelease versions |
 
 **Returns**: `string` — Updated package directory path.

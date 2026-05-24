@@ -7,7 +7,7 @@
 ## Parameters
 
 | Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| - | - | - | - |
 | `-ScriptPath` | `string` | Yes | Path to the script file to debug (i.e., the build artifact `.ps1` file) |
 
 ```powershell

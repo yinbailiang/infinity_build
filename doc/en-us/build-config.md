@@ -25,7 +25,7 @@ The configuration file is a top-level JSON object containing a `System` metadata
 ## System Section (Project Metadata)
 
 | Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
+| - | - | - | - | - |
 | `Name` | `string` | No | Config filename | Project name, affects output file naming and built-in variables |
 | `Version` | `string` | No | — | Project version, accessible via `$BuildVersion` |
 | `Mode` | `string` | No | `"Debug"` | Build mode: `"Debug"` (verbose logs), `"Release"` |
@@ -47,7 +47,7 @@ The configuration file is a top-level JSON object containing a `System` metadata
 Parses specified PowerShell source files into modules and performs topological sorting.
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
+| - | - | - | - |
 | `Files` | `string[]` | Yes | Source file glob pattern list, e.g., `["src/**/*.ps1"]` |
 
 ```json
@@ -65,7 +65,7 @@ Parses specified PowerShell source files into modules and performs topological s
 Source code supports the following inline build tags `#infb:`:
 
 | Directive | Description |
-|-----------|-------------|
+| - | - |
 | `#infb: rm` | Remove this line from build output |
 | `#infb: debug` | Keep this line only in Debug mode |
 | `#infb: release` | Keep this line only in Release mode |
@@ -74,7 +74,7 @@ Source code supports the following inline build tags `#infb:`:
 Source code also supports block-level preprocessing directives `##`:
 
 | Directive | Description |
-|-----------|-------------|
+| - | - |
 | `## Module <name>` | Declare the module name |
 | `## Import <module>` | Declare a module dependency |
 
@@ -85,7 +85,7 @@ Source code also supports block-level preprocessing directives `##`:
 Packages static resource files.
 
 | Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
+| - | - | - | - | - |
 | `Type` | `string` | No | `"Builtin"` | Resource type: `"Builtin"` (embed in script), `"External"` (output as ZIP) |
 | `resources` | `hashtable[]` | Yes | — | Array of source-to-destination path mappings |
 | `OutputDir` | `string` | No | Working directory | External resource output directory (only for `Type=External`) |
@@ -123,7 +123,7 @@ Packages static resource files.
 Injects predefined variables into the build output.
 
 | Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
+| - | - | - | - | - |
 | `Default` | `bool` | No | `false` | Inject default system variables (`$BuildName`, `$BuildVersion`, `$BuildMode`) |
 | `Defineds` | `hashtable[]` | No | `[]` | Array of custom variable definitions, supports `string`, `int`, `bool` types |
 
@@ -145,7 +145,7 @@ Injects predefined variables into the build output.
 Automatically downloads and manages NuGet package dependencies.
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
+| - | - | - | - |
 | `Sources` | `string[]` | Yes | NuGet package source URL list (uses the first source) |
 | `Packs` | `hashtable[]` | Yes | List of packages to install. Each element is an object `{ "PackageId": "Version" }`. Use `"Latest"` as version to always get the newest version |
 | `PackagesPath` | `string` | Yes | Local package library storage path |
@@ -168,7 +168,7 @@ Automatically downloads and manages NuGet package dependencies.
 Generates the program entry point, calling the specified function.
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
+| - | - | - | - |
 | `EntryPoint` | `string` | Yes | Entry point function name |
 | `Require` | `string` | No | Declare dependency on a module |
 
@@ -186,7 +186,7 @@ Generates the program entry point, calling the specified function.
 Specifies the build output file path. Relative paths are based on the config file directory.
 
 | Type | Required | Description |
-|------|----------|-------------|
+| - | - | - |
 | `string` | No | Output `.ps1` file path, defaults to `<Name>.ps1` |
 
 ```json

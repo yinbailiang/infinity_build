@@ -11,7 +11,7 @@
 Defines log levels. Higher numeric values include all lower-level messages (Debug level shows everything).
 
 | Name | Value | Description |
-|------|-------|-------------|
+| - | - | - |
 | `LogErr` | `0` | Error level |
 | `LogWarn` | `1` | Warning level |
 | `LogInfo` | `2` | Info level |
@@ -33,14 +33,14 @@ Log server responsible for formatting and outputting log messages. Controls log 
 ```
 
 | Parameter | Type | Description |
-|-----------|------|-------------|
+| - | - | - |
 | `$Level` | `LogType` | Log level threshold; messages higher than this are ignored |
 | `$AppName` | `string` | Optional, application name displayed in log prefix |
 
 #### Properties
 
 | Property | Type | Default | Description |
-|----------|------|---------|-------------|
+| - | - | - | - |
 | `LogLevel` | `LogType` | Specified in constructor | Current log level |
 | `AppName` | `string` | `$null` | Application name |
 | `EnableColors` | `bool` | `$true` | Enable colored output |
@@ -48,14 +48,14 @@ Log server responsible for formatting and outputting log messages. Controls log 
 #### Methods
 
 | Method | Returns | Description |
-|--------|---------|-------------|
+| - | - | - |
 | `FormatMessage([LogType]$Type, [string]$Text)` | `string` | Format a log message |
 | `Write([LogType]$Type, [string]$Text)` | `void` | Write a log entry (auto-filtered by level) |
 
 #### Log Output Colors
 
 | Level | Color |
-|-------|-------|
+| - | - |
 | `LogErr` | Bright Red |
 | `LogWarn` | Bright Yellow |
 | `LogInfo` | Bright Cyan |
@@ -75,14 +75,14 @@ Log client providing convenient logging methods with **scoped context** support.
 ```
 
 | Parameter | Type | Description |
-|-----------|------|-------------|
+| - | - | - |
 | `$Server` | `LogServer` | Associated log server instance |
 | `$Level` | `LogType` | Create a built-in LogServer with the specified level |
 
 #### Properties
 
 | Property | Type | Description |
-|----------|------|-------------|
+| - | - | - |
 | `Server` | `LogServer` | Associated log server |
 | `Context` | `Stack[string]` | Current scope stack (LIFO) |
 
@@ -91,7 +91,7 @@ Log client providing convenient logging methods with **scoped context** support.
 ##### Log Writing Methods
 
 | Method | Description |
-|--------|-------------|
+| - | - |
 | `Error([string]$Message)` | Write an error log |
 | `Warn([string]$Message)` | Write a warning log |
 | `Info([string]$Message)` | Write an info log |
