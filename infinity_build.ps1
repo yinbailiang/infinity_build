@@ -931,17 +931,10 @@ if ($ExtraConfig) {
     }
 }
 
-# 收集所有模块
+# 收集所有模块（顺序由后续拓扑排序决定，此处仅负责调用构建器）
 $AllModules = [System.Collections.Generic.List[InfinityModule]]::new()
 
-# 定义构建步骤的处理顺序（Boot 最后，确保启动代码位于脚本末尾）
-$StepOrder = @("Nuget", "PreDefineds", "Resource", "Source", "Boot")
-
-foreach ($StepName in $StepOrder) {
-    if (-not $BuildSteps.ContainsKey($StepName)) {
-        continue
-    }
-    
+foreach ($StepName in $BuildSteps.Keys) {
     # 查表：跳过未注册的构建器
     if (-not $Script:ModuleBuilders.ContainsKey($StepName)) {
         $Script:BuildLogger.Warn("未注册的构建步骤: $StepName，已跳过")
