@@ -907,8 +907,15 @@ $Script:ModuleBuilders["Nuget"] = {
 
     $Source = New-NugetSource -Url $Config['Sources'][0]
 
-    foreach($Id in $Config['Packs']){
-        $null = Update-NugetPackage -Source $Source -Id $Id.Keys[0] -LibraryPath $LibraryPath
+    foreach($Pack in $Config['Packs']){
+        $Id = $Pack.Keys[0]
+        $Ver = $Pack[$Pack.Keys[0]]
+        if ($Ver -eq "Latest"){
+            $null = Update-NugetPackage -Source $Source -Id $Id -LibraryPath $LibraryPath
+        }
+        else{
+            $null = Install-NugetPackage -Source $Source -Id $Id -Version $Ver -LibraryPath $LibraryPath
+        }
     }
 
     return @([InfinityModule]@{

@@ -147,13 +147,16 @@ Automatically downloads and manages NuGet package dependencies.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `Sources` | `string[]` | Yes | NuGet package source URL list (uses the first source) |
-| `Packs` | `string[]` | Yes | List of package IDs to install |
+| `Packs` | `hashtable[]` | Yes | List of packages to install. Each element is an object `{ "PackageId": "Version" }`. Use `"Latest"` as version to always get the newest version |
 | `PackagesPath` | `string` | Yes | Local package library storage path |
 
 ```json
 "Nuget": {
     "Sources": ["https://api.nuget.org/v3/index.json"],
-    "Packs": ["Newtonsoft.Json", "Serilog"],
+    "Packs": [
+        { "Newtonsoft.Json": "13.0.3" },
+        { "Serilog": "Latest" }
+    ],
     "PackagesPath": "packages"
 }
 ```

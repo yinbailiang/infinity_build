@@ -147,13 +147,16 @@ Infinity Build 使用 JSON 配置文件来驱动整个构建流程。本文档�
 | 字段 | 类型 | 必选 | 说明 |
 |------|------|------|------|
 | `Sources` | `string[]` | 是 | NuGet 包源 URL 列表（使用第一个源） |
-| `Packs` | `string[]` | 是 | 要安装的包 ID 列表 |
+| `Packs` | `hashtable[]` | 是 | 要安装的包列表，每个元素为 `{ "包ID": "版本号" }` 对象。版本号填写 `"Latest"` 表示始终获取最新版本 |
 | `PackagesPath` | `string` | 是 | 包库本地存储路径 |
 
 ```json
 "Nuget": {
     "Sources": ["https://api.nuget.org/v3/index.json"],
-    "Packs": ["Newtonsoft.Json", "Serilog"],
+    "Packs": [
+        { "Newtonsoft.Json": "13.0.3" },
+        { "Serilog": "Latest" }
+    ],
     "PackagesPath": "packages"
 }
 ```
