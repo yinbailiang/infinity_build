@@ -856,7 +856,7 @@ $Script:ModuleBuilders["Boot"] = {
     $Script:BuildLogger.Info("生成启动模块，入口函数: $EntryPoint")
     
     $BootCode = [System.Collections.Generic.List[string]]::new()
-    $BootCode.Add("$EntryPoint")
+    $BootCode.Add("$EntryPoint `$args")
     
     return @([InfinityModule]@{
         Name         = 'Builtin.Boot'
