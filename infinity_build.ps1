@@ -193,6 +193,47 @@ function Get-InfinityModule {
         if ([string]::IsNullOrWhiteSpace($Lines[$i])) {
             continue
         }
+
+        # 检查并处理 #infb: 行内构建标签
+        # 注意：使用 if/elseif 而非 switch，确保 continue 作用于外层 for 循环
+        $InfbIndex = $Lines[$i].IndexOf('#infb:')
+        if ($InfbIndex -ge 0) {
+            $TagPart = $Lines[$i].Substring($InfbIndex + 6).Trim()
+            $ActionParts = $TagPart -split '\s+', 2
+            $Action = $ActionParts[0]
+
+            if ($Action -eq 'rm') {
+                $Script:BuildLogger.Debug("  #infb: rm - 移除行 $($i+1)")
+                continue
+            }
+            elseif ($Action -eq 'debug') {
+                $BuildMode = if ($Script:BuildSystem.ContainsKey("Mode")) { $Script:BuildSystem["Mode"] } else { "Debug" }
+                if ($BuildMode -ne "Debug") {
+                    $Script:BuildLogger.Debug("  #infb: debug - 非 Debug 模式，移除行 $($i+1)")
+                    continue
+                }
+                $Script:BuildLogger.Debug("  #infb: debug - Debug 模式，保留行 $($i+1)")
+            }
+            elseif ($Action -eq 'release') {
+                $BuildMode = if ($Script:BuildSystem.ContainsKey("Mode")) { $Script:BuildSystem["Mode"] } else { "Debug" }
+                if ($BuildMode -ne "Release") {
+                    $Script:BuildLogger.Debug("  #infb: release - 非 Release 模式，移除行 $($i+1)")
+                    continue
+                }
+                $Script:BuildLogger.Debug("  #infb: release - Release 模式，保留行 $($i+1)")
+            }
+            elseif ($Action -eq 'replace') {
+                $ReplaceContent = if ($ActionParts.Count -gt 1) { $ActionParts[1] } else { "" }
+                $Script:BuildLogger.Debug("  #infb: replace - 替换行 $($i+1)")
+                $Lines[$i] = $ReplaceContent
+                if ([string]::IsNullOrWhiteSpace($Lines[$i])) { continue }
+            }
+            else {
+                $Script:BuildLogger.Warn("未知的 #infb: 操作: '$Action'")
+                $Script:BuildLogger.Warn("来自: $($Path): line $($i+1)")
+            }
+        }
+
         if ($Lines[$i].Trim().StartsWith('#')) {
             if ($Lines[$i].Trim().StartsWith('##')) {
                 $DirectiveParts = $Lines[$i].Trim().Substring(2) -split '\s+', 2
@@ -217,6 +258,7 @@ function Get-InfinityModule {
             }
             continue
         }
+        
         $InfinityModule.Code.Add($Lines[$i].TrimEnd())
         $InfinityModule.LineMappings[$InfinityModule.Code.Count] = $i + 1
     }
