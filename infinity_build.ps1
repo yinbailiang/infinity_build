@@ -645,7 +645,6 @@ $Script:ModuleBuilders["Resource"] = {
         $Script:BuildLogger.Error("不支持的资源类型: $ResourceType")
         throw "不支持的资源类型: $ResourceType"
     }
-    
     $ResourceMappings = if ($Config.ContainsKey("resources") -and $Config["resources"] -is [array]) {
         $Config["resources"]
     } else { @() }
@@ -741,7 +740,8 @@ $Script:ModuleBuilders["Resource"] = {
     }
 
     $Module = Get-ResourceEmbedModule -ZipFilePath $ResourceZipPath
-    return if ($Module) { @($Module) } else { @() }
+    $Ret = if ($Module) { @($Module) } else { @() }
+    return $Ret
 }
 
 # ---- PreDefineds 构建器 ----
@@ -863,7 +863,7 @@ $Script:ModuleBuilders["Boot"] = {
     $Script:BuildLogger.Info("生成启动模块，入口函数: $EntryPoint")
     
     $BootCode = [System.Collections.Generic.List[string]]::new()
-    $BootCode.Add("$EntryPoint")
+    $BootCode.Add("$EntryPoint `$args")
     
     return @([InfinityModule]@{
         Name         = 'Builtin.Boot'
