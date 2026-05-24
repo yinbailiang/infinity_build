@@ -79,10 +79,9 @@ catch {
             $Script:DbgLogger.Info($Line)
                 
             # 尝试映射行号
-            if ($Line -match 'at\s+<ScriptBlock>,\s+(.*?):\s+line\s+(\d+)') {
+            if ($Line -match 'at\s+[^,]+,\s+(.*?):\s+line\s+(\d+)') {
                 $FilePath = $Matches[1]
                 $LineNum = [int]$Matches[2]
-                    
                 # 检查是否是程序文件
                 if ($FilePath -eq $ProgramPath -and $DebugInfo) {
                     # 查找映射关系
