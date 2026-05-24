@@ -908,7 +908,7 @@ $Script:ModuleBuilders["Nuget"] = {
     $Source = New-NugetSource -Url $Config['Sources'][0]
 
     foreach($Id in $Config['Packs']){
-        $null = Update-NugetPackage -Source $Source -Id $Id -LibraryPath $LibraryPath
+        $null = Update-NugetPackage -Source $Source -Id $Id.Keys[0] -LibraryPath $LibraryPath
     }
 
     return @([InfinityModule]@{
