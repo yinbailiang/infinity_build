@@ -200,6 +200,7 @@ The build system is driven by a **module builder dictionary**, where each build 
 | Build Step | Description |
 | - | - |
 | `Source` | Parse source files into modules, topological sort |
+| `Std` | Parse standard library (`std/` directory) modules |
 | `Resource` | Collect and incrementally package resource files |
 | `PreDefineds` | Generate predefined variable module |
 | `Nuget` | Download and manage NuGet package dependencies |

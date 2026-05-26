@@ -31,12 +31,13 @@ Set-Location infinity_build
 
 ## API 文档
 
-Infinity Build 由四个核心模块组成，每个模块提供独立的 PowerShell API：
+Infinity Build 由以下模块组成，每个模块提供独立的 PowerShell API：
 
 ### 模块概览
 
 | 模块 | 文件 | 用途 |
 | - | - | - |
+| 环境初始化 | `init_env.ps1` | 加载临时命令行别名，快速调用各工具 |
 | 日志库 | `infinity_log.ps1` | 多级别彩色日志输出、结构化日志记录 |
 | 构建系统 | `infinity_build.ps1` | 模块解析、拓扑排序、资源打包、程序生成 |
 | NuGet 管理 | `infinity_nuget.ps1` | 包搜索、下载、安装、卸载、更新 |
@@ -59,6 +60,9 @@ Infinity Build 使用 JSON 配置文件驱动构建流程。配置文件结构�
     "Source": {
         "Files": ["src/**/*.ps1"]
     },
+    "Std": {
+        "Enable": true
+    },
     "Resource": {
         "Type": "Builtin",
         "resources": [{ "assets/": "assets" }]
@@ -78,6 +82,17 @@ Infinity Build 使用 JSON 配置文件驱动构建流程。配置文件结构�
 > 完整配置说明请参阅：[构建配置指南](build-config.md)
 
 ### 快速示例
+
+**示例 0：加载命令行别名**
+
+```powershell
+# 加载环境，获得短别名
+. .\init_env.ps1
+
+# 之后可直接使用别名
+inf_build -ConfigPath ".\myproject.json"
+inf_dbg -ScriptPath ".\output.ps1"
+```
 
 **示例 1：使用日志库**
 

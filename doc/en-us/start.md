@@ -31,12 +31,13 @@ Set-Location infinity_build
 
 ## API Documentation
 
-Infinity Build consists of four core modules, each providing an independent PowerShell API:
+Infinity Build consists of the following modules, each providing an independent PowerShell API:
 
 ### Module Overview
 
 | Module | File | Purpose |
 | - | - | - |
+| Environment Init | `init_env.ps1` | Load temporary command aliases for quick tool access |
 | Logging | `infinity_log.ps1` | Multi-level colored log output, structured logging |
 | Build System | `infinity_build.ps1` | Module parsing, topological sorting, resource packaging, program generation |
 | NuGet Management | `infinity_nuget.ps1` | Package search, download, install, uninstall, update |
@@ -59,6 +60,9 @@ Infinity Build uses JSON configuration files to drive the build process. The con
     "Source": {
         "Files": ["src/**/*.ps1"]
     },
+    "Std": {
+        "Enable": true
+    },
     "Resource": {
         "Type": "Builtin",
         "resources": [{ "assets/": "assets" }]
@@ -78,6 +82,17 @@ Infinity Build uses JSON configuration files to drive the build process. The con
 > For complete configuration details, see: [Build Configuration Guide](build-config.md)
 
 ### Quick Examples
+
+**Example 0: Loading Command Aliases**
+
+```powershell
+# Load the environment to get short aliases
+. .\init_env.ps1
+
+# Then use aliases directly
+inf_build -ConfigPath ".\myproject.json"
+inf_dbg -ScriptPath ".\output.ps1"
+```
 
 **Example 1: Using the Logging Library**
 

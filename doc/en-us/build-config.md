@@ -12,6 +12,7 @@ The configuration file is a top-level JSON object containing a `System` metadata
 {
     "System": { ... },
     "Source": { ... },
+    "Std": { ... },
     "Resource": { ... },
     "PreDefineds": { ... },
     "Nuget": { ... },
@@ -77,6 +78,26 @@ Source code also supports block-level preprocessing directives `##`:
 | - | - |
 | `## Module <name>` | Declare the module name |
 | `## Import <module>` | Declare a module dependency |
+
+---
+
+## Std Build Step (Standard Library Processing)
+
+Includes standard library modules (`.psm1`) from the `std/` directory in the build.
+
+| Field | Type | Required | Default | Description |
+| - | - | - | - | - |
+| `Enable` | `bool` | No | `true` | Enable standard library build; set to `false` to skip |
+
+Standard library files declare module names and dependencies via `## Module` and `## Import` preprocessor directives. The builder automatically performs topological sorting.
+
+```json
+"Std": {
+    "Enable": true
+}
+```
+
+> **Note**: Standard library source files are located in the `infinity_build/std/` directory. If `Enable` is `false` or the configuration is missing, standard library modules will not be included in the build output.
 
 ---
 

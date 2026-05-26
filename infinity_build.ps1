@@ -14,8 +14,8 @@
 
 #region 参数
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ConfigPath,
+    [Parameter(Mandatory = $false)]
+    [string]$ConfigPath = 'psproject.json',
 
     [Parameter(Mandatory = $false)]
     [hashtable]$ExtraConfig
@@ -615,7 +615,13 @@ function Get-ResourceEmbedModule {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$ZipFilePath
+        [string]$ZipFilePath,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$External,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ExternalOutputPath
     )
     
     if (-not (Test-Path -Path $ZipFilePath -PathType Leaf)) {
@@ -627,12 +633,27 @@ function Get-ResourceEmbedModule {
         $Script:BuildLogger.Info("生成资源嵌入模块: $ZipFilePath")
         $ZipBytes = [System.IO.File]::ReadAllBytes($ZipFilePath)
         $ZipHash = Get-FileHash -InputStream ([System.IO.MemoryStream]::new($ZipBytes)) -Algorithm SHA256
-        $Base64Data = [System.Convert]::ToBase64String($ZipBytes)
 
-        $ResourceCode = @(
-            "`$BuiltinResourceZipHash = `"$($ZipHash.Hash)`"",
-            "`$BuiltinResourceZipContent = [System.Convert]::FromBase64String(`"$($Base64Data)`")"
-        )
+        $ResourceCode = if ($External) {
+            # 外部模式：仅存储哈希和 ZIP 文件名，由 Std.Resource 运行时按路径查找
+            $ZipFileName = if ($ExternalOutputPath) {
+                [System.IO.Path]::GetFileName($ExternalOutputPath)
+            } else {
+                [System.IO.Path]::GetFileName($ZipFilePath)
+            }
+            $Script:BuildLogger.Info("外部模式 - ZIP文件名: $ZipFileName, 哈希: $($ZipHash.Hash)")
+            @(
+                "`$BuiltinResourceZipHash = `"$($ZipHash.Hash)`"",
+                "`$BuiltinResourceZipName = `"$($ZipFileName.Replace('"','""'))`""
+            )
+        } else {
+            # 内置模式：Base64 嵌入完整 ZIP 内容
+            $Base64Data = [System.Convert]::ToBase64String($ZipBytes)
+            @(
+                "`$BuiltinResourceZipHash = `"$($ZipHash.Hash)`"",
+                "`$BuiltinResourceZipContent = [System.Convert]::FromBase64String(`"$($Base64Data)`")"
+            )
+        }
 
         $ResourceEmbedModule = [InfinityModule]@{
             Name         = 'Builtin.Resource'
@@ -670,7 +691,31 @@ $Script:ModuleBuilders["Source"] = {
     $Modules = $SourceFiles | ForEach-Object {
         Get-InfinityModule -Path $_
     }
-    return @(Get-InfinityModuleOrdered -Modules $Modules)
+    return @($Modules)
+}
+
+$Script:ModuleBuilders["Std"] = {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+    if ($Config.ContainsKey("Enable")){
+        if (-not $Config.Enable){
+            return @()
+        }
+    }
+    $StdLibPath = Join-Path $PSScriptRoot "std"
+    $SourceFiles = Get-ChildItem $StdLibPath -Filter "*.psm1" -Recurse
+    $Script:BuildLogger.Info("找到 $($SourceFiles.Count) 个标准库源文件")
+    if ($SourceFiles.Count -eq 0) {
+        $Script:BuildLogger.Warn("未找到标准库源文件")
+        return @()
+    }
+    $Modules = $SourceFiles | ForEach-Object {
+        Get-InfinityModule -Path $_
+    }
+    return @($Modules)
 }
 
 $Script:ModuleBuilders["Resource"] = {
@@ -814,7 +859,6 @@ $Script:ModuleBuilders["Resource"] = {
 
         $ExternalOutputPath = Join-Path $ExternalOutputDir $ExternalOutputName
 
-        # 确保输出目录存在
         if (-not (Test-Path $ExternalOutputDir -PathType Container)) {
             $null = New-Item -Path $ExternalOutputDir -ItemType Directory -Force
             $Script:BuildLogger.Info("创建外部资源输出目录: $ExternalOutputDir")
@@ -823,7 +867,9 @@ $Script:ModuleBuilders["Resource"] = {
         Copy-Item -Path $ResourceZipPath -Destination $ExternalOutputPath -Force
         $Script:BuildLogger.Info("资源包已复制到外部路径: $ExternalOutputPath")
 
-        return @()
+        $Module = Get-ResourceEmbedModule -ZipFilePath $ResourceZipPath -External -ExternalOutputPath $ExternalOutputPath
+        $Ret = if ($Module) { @($Module) } else { @() }
+        return $Ret
     }
 }
 

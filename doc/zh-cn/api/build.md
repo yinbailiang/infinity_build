@@ -200,6 +200,7 @@ Get-ResourceEmbedModule -ZipFilePath $ZipPath
 | 构建步骤 | 说明 |
 | - | - |
 | `Source` | 解析源文件为模块，拓扑排序 |
+| `Std` | 解析标准库（`std/` 目录）模块 |
 | `Resource` | 收集、增量打包资源文件 |
 | `PreDefineds` | 生成预定义变量模块 |
 | `Nuget` | 下载并管理 NuGet 包依赖 |
