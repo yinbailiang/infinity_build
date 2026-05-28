@@ -419,6 +419,168 @@ function ConvertTo-NuGetVersion {
 
 <#
 .SYNOPSIS
+比较两个 NuGet 版本号（遵循 NuGet 官方 SemVer 2.0.0 排序规则）
+
+.DESCRIPTION
+比较两个 NuGet 版本号的优先级。输入可以是原始版本字符串（自动调用 ConvertTo-NuGetVersion 解析）
+或已解析的版本哈希表。
+
+比较规则（参考：https://learn.microsoft.com/en-us/nuget/concepts/package-versioning）：
+1. 先比较核心段（Major, Minor, Patch, Revision）从左到右，数值大的优先。
+2. 核心段相同时：
+   - 稳定版（无 PreRelease） > 预发布版（有 PreRelease）。
+   - 两个预发布版按点号分隔逐段比较：
+     a. 纯数字段按数值升序比较（小的优先）。
+     b. 纯数字段 < 非纯数字段（字母/混合段）。
+     c. 两个非纯数字段按不区分大小写的字母顺序比较。
+3. 构建元数据（BuildMetadata）不影响版本优先级。
+
+.PARAMETER VersionA
+必选，第一个版本字符串或 ConvertTo-NuGetVersion 返回的哈希表
+
+.PARAMETER VersionB
+必选，第二个版本字符串或 ConvertTo-NuGetVersion 返回的哈希表
+
+.EXAMPLE
+PS> Compare-NugetVersion -VersionA "1.0.1" -VersionB "1.0.1-beta"
+1
+# 说明：稳定版 1.0.1 优先级高于预发布版 1.0.1-beta
+
+.EXAMPLE
+PS> Compare-NugetVersion -VersionA "1.0.1-rc.10" -VersionB "1.0.1-rc.2"
+1
+# 说明：rc.10 > rc.2（点号分隔的纯数字按数值比较，10 > 2）
+
+.EXAMPLE
+PS> Compare-NugetVersion -VersionA "1.0.1-alpha10" -VersionB "1.0.1-alpha2"
+-1
+# 说明：alpha10 < alpha2（非点号分隔按字母顺序，'1' < '2'）
+
+.EXAMPLE
+PS> Compare-NugetVersion -VersionA "2.0.0" -VersionB "2.0.0.0"
+0
+# 说明：Revision=0 时归一化后等价
+
+.EXAMPLE
+PS> Compare-NugetVersion -VersionA "1.0.0+git.hash" -VersionB "1.0.0"
+0
+# 说明：构建元数据不影响比较，两者等价
+
+.OUTPUTS
+[int] - 1：VersionA > VersionB（VersionA 更新）
+         0：VersionA = VersionB（相同优先级）
+        -1：VersionA < VersionB（VersionB 更新）
+#>
+function Compare-NugetVersion {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        $VersionA,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        $VersionB
+    )
+
+    # 统一将输入转换为版本哈希表（兼容原始字符串、Hashtable 和 OrderedDictionary）
+    if ($VersionA -is [string]) {
+        $VerA = ConvertTo-NuGetVersion -VersionString $VersionA
+    }
+    elseif ($VersionA -is [System.Collections.IDictionary]) {
+        $VerA = $VersionA
+    }
+    else {
+        throw "VersionA 类型无效：应为 [string] 或 [IDictionary]，实际为 $($VersionA.GetType().Name)"
+    }
+
+    if ($VersionB -is [string]) {
+        $VerB = ConvertTo-NuGetVersion -VersionString $VersionB
+    }
+    elseif ($VersionB -is [System.Collections.IDictionary]) {
+        $VerB = $VersionB
+    }
+    else {
+        throw "VersionB 类型无效：应为 [string] 或 [IDictionary]，实际为 $($VersionB.GetType().Name)"
+    }
+
+    # 步骤1：比较核心段（Major → Minor → Patch → Revision），从左到右数值比较
+    $Segments = @('Major', 'Minor', 'Patch', 'Revision')
+    foreach ($Seg in $Segments) {
+        if ($VerA[$Seg] -gt $VerB[$Seg]) { return 1 }
+        if ($VerA[$Seg] -lt $VerB[$Seg]) { return -1 }
+    }
+
+    # 步骤2：核心段相等，比较预发布标签
+    $PreA = $VerA['PreRelease']
+    $PreB = $VerB['PreRelease']
+
+    # 2a. 都无预发布标签 → 相等（构建元数据不影响排序）
+    if (-not $PreA -and -not $PreB) {
+        return 0
+    }
+
+    # 2b. 一个有预发布，一个没有 → 无预发布的版本优先级更高
+    if (-not $PreA -and $PreB) {
+        return 1
+    }
+    if ($PreA -and -not $PreB) {
+        return -1
+    }
+
+    # 2c. 两个都有预发布标签 → 逐段比较
+    $PreSegmentsA = $PreA -split '\.'
+    $PreSegmentsB = $PreB -split '\.'
+    $MaxLen = [Math]::Max($PreSegmentsA.Count, $PreSegmentsB.Count)
+
+    for ($i = 0; $i -lt $MaxLen; $i++) {
+        # 某方段数不足时视为 $null
+        $SegA = if ($i -lt $PreSegmentsA.Count) { $PreSegmentsA[$i] } else { $null }
+        $SegB = if ($i -lt $PreSegmentsB.Count) { $PreSegmentsB[$i] } else { $null }
+
+        # 规则：段数更多且前面均相等 → 段数多的优先级更高
+        if ($null -eq $SegA -and $null -ne $SegB) {
+            return -1
+        }
+        if ($null -ne $SegA -and $null -eq $SegB) {
+            return 1
+        }
+
+        # 判断是否为纯数字段
+        $IsNumA = $SegA -match '^\d+$'
+        $IsNumB = $SegB -match '^\d+$'
+
+        if ($IsNumA -and $IsNumB) {
+            # 同是纯数字 → 数值比较（小的优先）
+            $IntA = [int]$SegA
+            $IntB = [int]$SegB
+            if ($IntA -gt $IntB) { return 1 }
+            if ($IntA -lt $IntB) { return -1 }
+        }
+        elseif ($IsNumA -and -not $IsNumB) {
+            # 数字段 < 非数字段
+            return -1
+        }
+        elseif (-not $IsNumA -and $IsNumB) {
+            # 非数字段 > 数字段
+            return 1
+        }
+        else {
+            # 同是非数字段 → 不区分大小写的字母顺序比较
+            $Cmp = [string]::Compare($SegA, $SegB, [System.StringComparison]::OrdinalIgnoreCase)
+            if ($Cmp -gt 0) { return 1 }
+            if ($Cmp -lt 0) { return -1 }
+        }
+    }
+
+    # 全部预发布段相等 → 版本相同（构建元数据不影响）
+    return 0
+}
+
+
+<#
+.SYNOPSIS
 获取指定 NuGet 包的所有可用版本列表
 
 .DESCRIPTION
@@ -627,7 +789,7 @@ function Get-NugetPackagContent {
     }
 }
 #endregion
- 
+
 #region 包库管理
 <#
 .SYNOPSIS
@@ -1057,131 +1219,4 @@ function Uninstall-NugetPackage {
         throw
     }
 }
-
-<#
-.SYNOPSIS
-更新指定的 NuGet 包到最新版本
-
-.DESCRIPTION
-检查指定包的最新版本并更新到包库
-
-.PARAMETER Source
-必选，NugetSource 类的实例（已初始化的包源对象）
-
-.PARAMETER Id
-必选，要更新的 NuGet 包ID
-
-.PARAMETER LibraryPath
-必选，包库根目录路径
-
-.PARAMETER IncludePrerelease
-可选，是否包含预发布版本
-
-.EXAMPLE
-PS> Update-NugetPackage -Source $Source -Id "Newtonsoft.Json" -LibraryPath "C:\NuGetPackages"
-# 更新 Newtonsoft.Json 包到最新稳定版本
-
-.EXAMPLE
-PS> Update-NugetPackage -Source $Source -Id "Microsoft.AspNetCore" -LibraryPath "C:\NuGetPackages" -IncludePrerelease
-# 更新包到最新版本（包含预发布版本）
-
-.OUTPUTS
-[string] - 更新后的包目录路径
-#>
-function Update-NugetPackage {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param (
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNull()]
-        [NugetSource]$Source,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Id,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$LibraryPath,
-
-        [Parameter(Mandatory = $false)]
-        [switch]$IncludePrerelease
-    )
-    
-    try {
-        $Script:NugetLogger.Info("开始检查包更新: $Id")
-        
-        # 获取包的所有可用版本
-        $AvailableVersions = Get-NugetPackageVersions -Source $Source -Id $Id -Preview:$IncludePrerelease
-        
-        if ($AvailableVersions.Count -eq 0) {
-            throw "未找到包 $Id 的可用版本"
-        }
-        
-        # 获取最新版本（按版本号降序排序）
-        $LatestVersion = $AvailableVersions | 
-        Sort-Object { $_['Major'] }, { $_['Minor'] }, { $_['Patch'] }, { $_['Revision'] } -Descending | 
-        Select-Object -First 1
-        
-        $LatestVersionString = $LatestVersion['NormalizedVersion'].ToLowerInvariant()
-        $Script:NugetLogger.Info("包 $Id 的最新版本: $LatestVersionString")
-        
-        # 检查是否已安装最新版本
-        $Manifest = Read-NugetPackageLibraryManifest -Path $LibraryPath
-        
-        if ($Manifest.Packages.ContainsKey($Id.ToLowerInvariant()) -and 
-            $Manifest.Packages[$Id.ToLowerInvariant()].ContainsKey($LatestVersionString)) {
-            $Script:NugetLogger.Info("包 $Id 已是最新版本: $LatestVersionString")
-            return (Join-Path $LibraryPath $Id.ToLowerInvariant() $LatestVersionString)
-        }
-        
-        # 安装最新版本
-        $Script:NugetLogger.Info("安装最新版本: $LatestVersionString")
-        return Install-NugetPackage -Source $Source -Id $Id -Version $LatestVersionString -LibraryPath $LibraryPath -Force
-    }
-    catch {
-        $Script:NugetLogger.Error("更新包失败: $($_.Exception.Message)")
-        throw
-    }
-}
 #endregion
-
-<#
-#region 测试代码
-$Script:NugetLogger.Scope("加载配置", {
-        $Script:ConfigPath = Join-Path -Path $PSScriptRoot 'configs' 'infinity_nuget_config.json'
-        $Script:NugetLogger.Info("配置文件: $($Script:ConfigPath)")
-        $Script:Config = Get-Content -Path $Script:ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable;
-        $Script:NugetLogger.Info("配置: $($Script:Config | ConvertTo-Json -Depth 3)")
-    })
-
-# 创建包库（如果不存在）
-if (-not (Test-Path -Path $Script:Config["PackagesPath"] -PathType Container)) {
-    $LibraryPath = New-NugetPackageLibraryManifest -Path $Script:Config["PackagesPath"]
-}
-else {
-    $LibraryPath = (Get-Item -Path $Script:Config["PackagesPath"]).FullName
-}
-
-# 读取包库清单
-$LibraryManifest = Read-NugetPackageLibraryManifest -Path $LibraryPath
-$Script:NugetLogger.Info("包库清单已加载")
-
-
-# $Source = New-NugetSource -Url "https://api.nuget.org/v3/index.json"
-
-# 示例：安装一个包
-# $PackageDir = Install-NugetPackage -Source $Source -Id "Newtonsoft.Json" -Version "13.0.1" -LibraryPath $LibraryPath
-
-# 示例：卸载一个包
-# $Result = Uninstall-NugetPackage -Id "Newtonsoft.Json" -AllVersions -LibraryPath $LibraryPath
-
-# 示例：更新一个包
-# $UpdatedPackageDir = Update-NugetPackage -Source $Source -Id "Newtonsoft.Json" -LibraryPath $LibraryPath
-
-# 示例：获取已安装的包
-# $InstalledPackages = Get-InstalledNugetPackages -LibraryPath $LibraryPath
-# $InstalledPackages | Format-Table -AutoSize
-
-#endregion
-#>
