@@ -4,7 +4,7 @@ infinity_build/
 .infinity_build/
 
 # 构建输出
-build/
+*.debug.json
 
 # 系统文件
 .DS_Store

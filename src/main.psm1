@@ -95,17 +95,6 @@ function Invoke-Main {
 
             $StepConfig = $BuildSteps[$StepName]
 
-            # Nuget 特殊处理：Packs 为空时跳过（避免空包列表触发不必要的网络请求）
-            if ($StepName -eq "Nuget") {
-                $Packs = if ($StepConfig.ContainsKey("Packs") -and $StepConfig["Packs"] -is [array]) {
-                    $StepConfig["Packs"]
-                } else { @() }
-                if ($Packs.Count -eq 0) {
-                    $Script:BuildLogger.Info("Nuget.Packs 为空，跳过 Nuget 步骤")
-                    continue
-                }
-            }
-
             $Script:BuildLogger.MeasureScope("构建步骤: $StepName", {
                 # 统一查表调用
                 $Result = & $Script:ModuleBuilders[$StepName] -Config $StepConfig
@@ -124,14 +113,11 @@ function Invoke-Main {
             throw "未生成任何模块，构建终止"
         }
 
-        # 对所有模块进行拓扑排序（内置模块无依赖故排在前，Boot 依赖指定模块故排在其后）
         $Script:BuildLogger.Info("开始拓扑排序...")
         $SortedModules = Get-InfinityModuleOrdered -Modules $AllModules.ToArray()
 
-        # 生成程序段
         $ProgramSegment = New-InfinityProgramSegment -Modules $SortedModules
 
-        # 确定输出路径（优先使用 Output 配置，其次使用 System.Name）
         $OutputPath = if ($Script:BuildConfig.ContainsKey("Output")) {
             $Script:BuildConfig["Output"]
         }
@@ -142,23 +128,19 @@ function Invoke-Main {
             "output.ps1"
         }
 
-        # 相对路径转绝对路径
         if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
             $OutputPath = Join-Path (Get-Location) $OutputPath
         }
 
-        # 确保输出目录存在
         $OutputDir = Split-Path $OutputPath -Parent
         if ($OutputDir -and -not (Test-Path $OutputDir)) {
             $null = New-Item -Path $OutputDir -ItemType Directory -Force
             $Script:BuildLogger.Info("创建输出目录: $OutputDir")
         }
 
-        # 写入输出脚本
         $Script:BuildLogger.Info("写入输出脚本: $OutputPath")
         $ProgramSegment.Code | Set-Content -Path $OutputPath -Encoding UTF8
 
-        # 生成并写入调试映射文件（供 infinity_dbg.ps1 使用）
         $DebugInfoPath = [System.IO.Path]::ChangeExtension($OutputPath, ".debug.json")
         $Script:BuildLogger.Info("写入调试信息: $DebugInfoPath")
 
