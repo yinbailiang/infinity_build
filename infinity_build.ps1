@@ -1179,15 +1179,6 @@ function Invoke-Main {
                 continue
             }
             $StepConfig = $BuildSteps[$StepName]
-            if ($StepName -eq "Nuget") {
-                $Packs = if ($StepConfig.ContainsKey("Packs") -and $StepConfig["Packs"] -is [array]) {
-                    $StepConfig["Packs"]
-                } else { @() }
-                if ($Packs.Count -eq 0) {
-                    $Script:BuildLogger.Info("Nuget.Packs 为空，跳过 Nuget 步骤")
-                    continue
-                }
-            }
             $Script:BuildLogger.MeasureScope("构建步骤: $StepName", {
                 $Result = & $Script:ModuleBuilders[$StepName] -Config $StepConfig
                 if ($Result) {
