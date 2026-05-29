@@ -1,0 +1,24 @@
+{
+    "System": {
+        "Name": "infinity_build",
+        "Version": "2.0.0",
+        "Mode": "Debug",
+        "CacheDir":".infinity_build"
+    },
+    "PreDefineds": {
+        "Default": true,
+        "Defineds": []
+    },
+    "Source": {
+        "Files": [
+            "std/*.psm1",
+            "src/core/*.psm1",
+            "src/builders/*.psm1",
+            "src/main.psm1"
+        ]
+    },
+    "Boot": {
+        "EntryPoint": "Invoke-Main",
+        "Require": "Main"
+    }
+}

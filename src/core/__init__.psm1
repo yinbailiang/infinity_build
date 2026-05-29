@@ -1,0 +1,9 @@
+##Module Core
+##Import Core.Logger
+##Import Core.Types
+##Import Core.Finder
+##Import Core.Parser
+##Import Core.Sorter
+##Import Core.Linker
+##Import Core.Resource
+##Import Core.PreDefineds
