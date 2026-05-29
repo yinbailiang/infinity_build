@@ -2,8 +2,6 @@
 ##Import Core.Logger
 ##Import Core.Types
 
-#region 拓扑排序
-
 function Get-InfinityModuleOrdered {
     [CmdletBinding()]
     param(
@@ -81,5 +79,3 @@ function Get-InfinityModuleOrdered {
     $Script:BuildLogger.Info("拓扑排序完成，顺序: $($SortedModules.Name -join ' -> ')")
     return $SortedModules
 }
-
-#endregion

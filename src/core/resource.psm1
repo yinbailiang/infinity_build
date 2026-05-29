@@ -2,7 +2,6 @@
 ##Import Core.Types
 
 #region 资源快照
-
 function Get-ResourceSnapshot {
     [CmdletBinding()]
     param(

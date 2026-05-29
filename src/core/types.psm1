@@ -1,7 +1,5 @@
 ##Module Core.Types
 
-#region 类型定义
-
 class InfinityModule {
     [string]$Name
     [System.Collections.Generic.List[string]]$Requires
@@ -24,5 +22,3 @@ class ResourceFileHash {
     [string]$RelativePath
     [string]$Hash256
 }
-
-#endregion
