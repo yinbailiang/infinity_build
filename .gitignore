@@ -1,0 +1,19 @@
+# infinity_build 工具链
+infinity_build/
+# Infinity Build 缓存目录
+.infinity_build/
+
+# 构建输出
+build/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
