@@ -19,13 +19,10 @@ param (
 #endregion
 
 #region 日志
-if (-not $Script:LogLoaded){
-    . (Join-Path $PSScriptRoot 'infinity_log.ps1')
-}
+. (Join-Path $PSScriptRoot 'infinity_log.ps1')
 $Script:DbgLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityDbg")
 $Script:DbgLogger = [LogClient]::new($Script:DbgLoggerServer)
 #endregion
-
 
 #region 初始化
 if (-not (Test-Path -Path $ScriptPath -PathType Leaf)) {

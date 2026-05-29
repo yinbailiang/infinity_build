@@ -35,9 +35,8 @@ if (-not (Test-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath 'infinity_lo
 #endregion
 
 #region 日志初始化
-if (-not $Script:LogLoaded){
-    . (Join-Path $PSScriptRoot 'infinity_log.ps1')
-}
+. (Join-Path $PSScriptRoot 'infinity_log.ps1')
+
 $Script:BuildLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityBuild")
 $Script:BuildLogger = [LogClient]::new($Script:BuildLoggerServer)
 #endregion

@@ -14,7 +14,12 @@
     6. 结构化日志记录
 #>
 
-$Script:LogLoaded = $true
+#region 防重加载
+if ($Script:InfLogLoaded = $true){
+    return
+}
+$Script:InfLogLoaded = $true
+#endregion
 
 enum LogType {
     LogErr = 0      # 错误
