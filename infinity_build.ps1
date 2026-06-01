@@ -2602,7 +2602,7 @@ function Get-InfinityModule {
     [void][System.Management.Automation.Language.Parser]::ParseInput($FileContent, [ref]$tokens, [ref]$errors)
     if ($errors.Count -gt 0) {
         foreach ($err in $errors) {
-            $Script:BuildLogger.Warn("语法解析警告: $($err.Message) 来自: $Path (行 $($err.Extent.StartLineNumber))")
+            $Script:BuildLogger.Warn("语法解析警告: $($err.Message) 来自: $($Path): line $($err.Extent.StartLineNumber)")
         }
     }
     $SourceInfo = Get-Item -Path $Path
@@ -2612,6 +2612,10 @@ function Get-InfinityModule {
         Code         = [System.Collections.Generic.List[string]]::new()
         SourceInfo   = $SourceInfo
         LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
+    }
+    $stringTokens = $tokens | Where-Object {
+        $_.Kind -eq 'StringExpandable' -or $_.Kind -eq 'StringLiteral' -or
+        $_.Kind -eq 'HereStringExpandable' -or $_.Kind -eq 'HereStringLiteral'
     }
     $commentTokens = $tokens | Where-Object { $_.Kind -eq 'Comment' }
     foreach ($comment in $commentTokens) {
@@ -2694,7 +2698,17 @@ function Get-InfinityModule {
         }
         $trimmedLine = $filteredLine.TrimEnd()
         if ([string]::IsNullOrWhiteSpace($trimmedLine)) {
-            continue
+            $insideString = $false
+            foreach ($strToken in $stringTokens) {
+                $ext = $strToken.Extent
+                if ($lineNum -ge $ext.StartLineNumber -and $lineNum -le $ext.EndLineNumber) {
+                    $insideString = $true
+                    break
+                }
+            }
+            if (-not $insideString) {
+                continue
+            }
         }
         $InfinityModule.Code.Add($trimmedLine)
         $InfinityModule.LineMappings[$InfinityModule.Code.Count] = $lineNum

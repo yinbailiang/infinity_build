@@ -34,7 +34,7 @@ function Get-InfinityModule {
 
     if ($errors.Count -gt 0) {
         foreach ($err in $errors) {
-            $Script:BuildLogger.Warn("语法解析警告: $($err.Message) 来自: $Path (行 $($err.Extent.StartLineNumber))")
+            $Script:BuildLogger.Warn("语法解析警告: $($err.Message) 来自: $($Path): line $($err.Extent.StartLineNumber)")
         }
     }
 
@@ -47,7 +47,13 @@ function Get-InfinityModule {
         LineMappings = [System.Collections.Generic.Dictionary[int, int]]::new()
     }
 
-    # ---------- 1. 从注释 token 中提取预处理指令 ----------
+    # ---------- 1. 收集字符串 token（用于判断空白行是否位于字符串内部） ----------
+    $stringTokens = $tokens | Where-Object {
+        $_.Kind -eq 'StringExpandable' -or $_.Kind -eq 'StringLiteral' -or
+        $_.Kind -eq 'HereStringExpandable' -or $_.Kind -eq 'HereStringLiteral'
+    }
+
+    # ---------- 2. 从注释 token 中提取预处理指令 ----------
     $commentTokens = $tokens | Where-Object { $_.Kind -eq 'Comment' }
     foreach ($comment in $commentTokens) {
         # 注释文本可能跨多行（多行注释），按行处理
@@ -74,7 +80,7 @@ function Get-InfinityModule {
         }
     }
 
-    # ---------- 2. 构建每行需移除的注释区间（基于 token 位置） ----------
+    # ---------- 3. 构建每行需移除的注释区间（基于 token 位置） ----------
     # 使用 Dictionary<int, List<区间>> ，区间为 [startColumn, endColumn) 半开区间（1-based）
     $lineCommentRanges = @{}
     foreach ($comment in $commentTokens) {
@@ -115,7 +121,7 @@ function Get-InfinityModule {
         }
     }
 
-    # ---------- 3. 按行剔除注释，构建 Code 与行映射 ----------
+    # ---------- 4. 按行剔除注释，构建 Code 与行映射 ----------
     [string[]]$Lines = $FileContent -split '\r?\n'
     for ([int]$i = 0; $i -lt $Lines.Count; ++$i) {
         $lineNum = $i + 1
@@ -147,7 +153,18 @@ function Get-InfinityModule {
 
         $trimmedLine = $filteredLine.TrimEnd()
         if ([string]::IsNullOrWhiteSpace($trimmedLine)) {
-            continue
+            # 检查该空白行是否位于多行字符串（如 here-string）内部
+            $insideString = $false
+            foreach ($strToken in $stringTokens) {
+                $ext = $strToken.Extent
+                if ($lineNum -ge $ext.StartLineNumber -and $lineNum -le $ext.EndLineNumber) {
+                    $insideString = $true
+                    break
+                }
+            }
+            if (-not $insideString) {
+                continue
+            }
         }
 
         $InfinityModule.Code.Add($trimmedLine)
