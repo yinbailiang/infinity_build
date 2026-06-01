@@ -1,0 +1,7 @@
+{
+    "Std":[
+        "nuget/*.psm1",
+        "tui/*.psm1",
+        "*.psm1"
+    ]
+}

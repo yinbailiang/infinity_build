@@ -79,3 +79,63 @@ function Get-InfinityModuleOrdered {
     $Script:BuildLogger.Info("拓扑排序完成，顺序: $($SortedModules.Name -join ' -> ')")
     return $SortedModules
 }
+
+function Select-InfinityModuleReachable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$RootNames,
+
+        [Parameter(Mandatory = $true)]
+        [InfinityModule[]]$Modules
+    )
+
+    $Script:BuildLogger.Info("从 $($RootNames.Count) 个根模块中筛选可达模块，总模块数: $($Modules.Count)")
+    
+    # 创建模块名称到模块对象的映射
+    $ModuleMap = @{}
+    foreach ($Module in $Modules) {
+        $ModuleMap[$Module.Name] = $Module
+    }
+    
+    # BFS 查找所有可达模块
+    $Visited = [System.Collections.Generic.HashSet[string]]::new()
+    $Queue = [System.Collections.Generic.Queue[string]]::new()
+    
+    foreach ($RootName in $RootNames) {
+        if (-not $ModuleMap.ContainsKey($RootName)) {
+            $Script:BuildLogger.Warn("根模块 '$RootName' 不在提供的模块列表中，已跳过")
+            continue
+        }
+        if ($Visited.Add($RootName)) {
+            $Queue.Enqueue($RootName)
+        }
+    }
+    
+    while ($Queue.Count -gt 0) {
+        $CurrentName = $Queue.Dequeue()
+        $CurrentModule = $ModuleMap[$CurrentName]
+        
+        foreach ($RequiredName in $CurrentModule.Requires) {
+            if (-not $ModuleMap.ContainsKey($RequiredName)) {
+                $Script:BuildLogger.Warn("模块 '$CurrentName' 依赖的模块 '$RequiredName' 不在提供的模块列表中")
+                continue
+            }
+            if ($Visited.Add($RequiredName)) {
+                $Queue.Enqueue($RequiredName)
+            }
+        }
+    }
+    
+    # 筛选出可达模块，保持原有顺序
+    $ReachableModules = $Modules | Where-Object { $Visited.Contains($_.Name) }
+    $RemovedCount = $Modules.Count - $ReachableModules.Count
+    
+    if ($RemovedCount -gt 0) {
+        $RemovedNames = ($Modules | Where-Object { -not $Visited.Contains($_.Name) }).Name -join ', '
+        $Script:BuildLogger.Info("已剔除 $RemovedCount 个不被根模块依赖的模块: $RemovedNames")
+    }
+    
+    $Script:BuildLogger.Info("可达模块筛选完成，保留 $($ReachableModules.Count) 个模块")
+    return $ReachableModules
+}

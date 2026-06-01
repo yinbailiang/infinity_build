@@ -23,10 +23,53 @@ enum LogType {
     LogDebug = 3    # 调试
 }
 
+class LogColorTable {
+    [string]$ErrorColor
+    [string]$WarnColor
+    [string]$InfoColor
+    [string]$DebugColor
+
+    LogColorTable([string]$Error_C, [string]$Warn, [string]$Info, [string]$Debug) {
+        $this.ErrorColor = $Error_C
+        $this.WarnColor = $Warn
+        $this.InfoColor = $Info
+        $this.DebugColor = $Debug
+    }
+
+    [string]GetColor([LogType]$Type) {
+        switch ($Type) {
+            ([LogType]::LogErr)  { return $this.ErrorColor }
+            ([LogType]::LogWarn) { return $this.WarnColor }
+            ([LogType]::LogInfo) { return $this.InfoColor }
+            ([LogType]::LogDebug) { return $this.DebugColor }
+            default              {  }
+        }
+        return ""
+    }
+
+    # 预设：默认（亮色系，适合深色终端背景）
+    static [LogColorTable] GetDefault() {
+        return [LogColorTable]::new("91", "93", "96", "94")
+    }
+    # 预设：暗色终端优化（亮红/亮黄/亮白/暗灰）
+    static [LogColorTable] GetDark() {
+        return [LogColorTable]::new("91", "93", "97", "90")
+    }
+    # 预设：亮色终端优化（暗红/暗黄/黑/暗白，适合白色背景）
+    static [LogColorTable] GetLight() {
+        return [LogColorTable]::new("31", "33", "30", "37")
+    }
+    # 预设：高对比度（背景色块，无障碍友好）
+    static [LogColorTable] GetHighContrast() {
+        return [LogColorTable]::new("97;41", "30;43", "97;44", "37;40")
+    }
+}
+
 class LogServer {
     [LogType]$LogLevel
     [string]$AppName = $null
     [bool]$EnableColors = $true
+    [LogColorTable]$ColorTable = [LogColorTable]::GetDefault()
     
     LogServer([LogType]$Level) {
         $this.LogLevel = $Level
@@ -34,6 +77,15 @@ class LogServer {
     LogServer([LogType]$Level, [string]$AppName) {
         $this.LogLevel = $Level
         $this.AppName = $AppName
+    }
+    LogServer([LogType]$Level, [string]$AppName, [LogColorTable]$ColorTable) {
+        $this.LogLevel = $Level
+        $this.AppName = $AppName
+        $this.ColorTable = $ColorTable
+    }
+    LogServer([LogType]$Level, [LogColorTable]$ColorTable) {
+        $this.LogLevel = $Level
+        $this.ColorTable = $ColorTable
     }
     
     [string]FormatMessage([LogType]$Type, [string]$Text) {
@@ -68,14 +120,13 @@ class LogServer {
     }
     
     hidden [void]WriteColored([LogType]$Type, [string]$Message) {
-        $colorCode = switch ($Type) {
-            ([LogType]::LogErr) { "91" }  # 亮红色
-            ([LogType]::LogWarn) { "93" }  # 亮黄色
-            ([LogType]::LogInfo) { "96" }  # 亮青色
-            ([LogType]::LogDebug) { "94" }  # 亮蓝色
+        $colorCode = $this.ColorTable.GetColor($Type)
+        if ([string]::IsNullOrEmpty($colorCode)) {
+            Write-Host $Message
         }
-        
-        Write-Host "`u{001b}[${colorCode}m$Message`u{001b}[0m"
+        else {
+            Write-Host "`u{001b}[${colorCode}m$Message`u{001b}[0m"
+        }
     }
 }
 
@@ -88,6 +139,9 @@ class LogClient {
     }
     LogClient([LogType]$Level) {
         $this.Server = [LogServer]::new($Level)
+    }
+    LogClient([LogType]$Level, [LogColorTable]$ColorTable) {
+        $this.Server = [LogServer]::new($Level, $ColorTable)
     }
     
     [object]Scope([string]$ScopeName, [scriptblock]$ScriptBlock) {

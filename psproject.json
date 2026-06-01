@@ -11,11 +11,13 @@
     },
     "Source": {
         "Files": [
-            "std/*.psm1",
             "src/core/*.psm1",
             "src/builders/*.psm1",
             "src/main.psm1"
         ]
+    },
+    "Std":{
+        "Enable": true
     },
     "Boot": {
         "EntryPoint": "Invoke-Main",

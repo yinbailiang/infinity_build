@@ -116,6 +116,13 @@ function Invoke-Main {
         $Script:BuildLogger.Info("开始拓扑排序...")
         $SortedModules = Get-InfinityModuleOrdered -Modules $AllModules.ToArray()
 
+        if ($Script:BuildConfig.ContainsKey("Boot")){
+            if ($Script:BuildConfig["Boot"].ContainsKey("Require")){
+                $Script:BuildLogger.Info("剔除未使用模块...")
+                $SortedModules = Select-InfinityModuleReachable -RootNames @("Builtin.Boot") -Modules $SortedModules
+            }
+        }
+
         $ProgramSegment = New-InfinityProgramSegment -Modules $SortedModules
 
         $OutputPath = if ($Script:BuildConfig.ContainsKey("Output")) {

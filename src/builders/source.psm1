@@ -18,7 +18,7 @@ $Script:ModuleBuilders["Source"] = {
         $Script:BuildLogger.Warn("未找到任何源文件")
         return @()
     }
-    $Modules = $SourceFiles | ForEach-Object {
+    $Modules = $SourceFiles | Select-Object -Unique | ForEach-Object {
         Get-InfinityModule -Path $_
     }
     return @($Modules)
