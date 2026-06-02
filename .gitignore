@@ -3,8 +3,8 @@ infinity_build/
 # Infinity Build 缓存目录
 .infinity_build/
 
-# 参考
-Nuget.Client/
+# 其他
+other/
 
 # 构建输出
 *.debug.json
