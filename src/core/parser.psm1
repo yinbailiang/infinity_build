@@ -80,6 +80,20 @@ function Get-InfinityModule {
         }
     }
 
+    # ---------- 2.5. 提取 #infb: rm 行末移除指令 ----------
+    $removeLines = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($comment in $commentTokens) {
+        # 只处理单行注释（行注释 #...），避免误判多行块注释内的内容
+        if ($comment.Extent.StartLineNumber -eq $comment.Extent.EndLineNumber) {
+            $trimmedComment = $comment.Text.Trim()
+            if ($trimmedComment -match '^#\s*infb\s*:\s*rm\b') {
+                $lineToRemove = $comment.Extent.StartLineNumber
+                [void]$removeLines.Add($lineToRemove)
+                $Script:BuildLogger.Debug("  #infb:rm 移除行: $lineToRemove")
+            }
+        }
+    }
+
     # ---------- 3. 构建每行需移除的注释区间（基于 token 位置） ----------
     # 使用 Dictionary<int, List<区间>> ，区间为 [startColumn, endColumn) 半开区间（1-based）
     $lineCommentRanges = @{}
@@ -165,6 +179,11 @@ function Get-InfinityModule {
             if (-not $insideString) {
                 continue
             }
+        }
+
+        # 跳过 #infb: rm 标记的移除行
+        if ($removeLines.Contains($lineNum)) {
+            continue
         }
 
         $InfinityModule.Code.Add($trimmedLine)

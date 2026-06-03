@@ -2400,6 +2400,17 @@ function Get-InfinityModule {
             }
         }
     }
+    $removeLines = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($comment in $commentTokens) {
+        if ($comment.Extent.StartLineNumber -eq $comment.Extent.EndLineNumber) {
+            $trimmedComment = $comment.Text.Trim()
+            if ($trimmedComment -match '^#\s*infb\s*:\s*rm\b') {
+                $lineToRemove = $comment.Extent.StartLineNumber
+                [void]$removeLines.Add($lineToRemove)
+                $Script:BuildLogger.Debug("  #infb:rm 移除行: $lineToRemove")
+            }
+        }
+    }
     $lineCommentRanges = @{}
     foreach ($comment in $commentTokens) {
         $extent = $comment.Extent
@@ -2468,6 +2479,9 @@ function Get-InfinityModule {
             if (-not $insideString) {
                 continue
             }
+        }
+        if ($removeLines.Contains($lineNum)) {
+            continue
         }
         $InfinityModule.Code.Add($trimmedLine)
         $InfinityModule.LineMappings[$InfinityModule.Code.Count] = $lineNum
