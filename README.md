@@ -1,11 +1,15 @@
 ![](doc/res/infinity_icon/256x256.png)
+
 # Infinity Build
 
-#### 为PowerShell设计的程序开发套件
+## 为PowerShell设计的程序开发套件
+
 A PowerShell Development Kit
 
-#### 详细内容请参阅[文档](doc/index.md)
+## 详细内容请参阅[文档](doc/index.md)
+
 For detailed information, please refer to the [Documentation](doc/index.md)
 
-#### 此项目中的内容，若无特殊说明，则遵守 [MIT协议](LICENSE.md)
+## 此项目中的内容，若无特殊说明，则遵守 [MIT协议](LICENSE.md)
+
 The content of this project, unless otherwise specified, is subject to the [MIT LICENSE](LICENSE.md)
