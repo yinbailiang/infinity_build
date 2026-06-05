@@ -1,5 +1,11 @@
 ##Module Core.Types
 
+<#
+.NOTES
+    Infinity Build 核心数据类型定义。
+    包含：InfinityModule、InfinityProgramSegment、ResourceFileInfo、ResourceFileHash。
+#>
+
 class InfinityModule {
     [string]$Name
     [System.Collections.Generic.List[string]]$Requires

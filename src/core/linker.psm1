@@ -4,6 +4,13 @@
 
 #region 程序段生成
 
+<#
+.SYNOPSIS
+    将排序后的 InfinityModule 数组链接为最终的 InfinityProgramSegment。
+.DESCRIPTION
+    按顺序拼接各模块的 Code 行，并合并各模块的行号映射，
+    生成输出行号 -> (源文件路径, 源行号) 的全局映射表。
+#>
 function New-InfinityProgramSegment {
     [CmdletBinding()]
     param(

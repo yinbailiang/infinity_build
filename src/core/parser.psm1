@@ -3,6 +3,18 @@
 ##Import Core.Types
 
 #region 模块解析
+
+<#
+.SYNOPSIS
+    解析 .psm1 源文件为 InfinityModule 对象。
+.DESCRIPTION
+    读取指定路径的 .psm1 模块源文件，执行以下处理：
+    - 从注释中提取 ##Module / ##Import 预处理指令
+    - 剥离所有注释（单行、多行、块注释）
+    - 处理 #infb: rm 行移除指令（用于剔除调试代码）
+    - 保留 here-string 内部的空白行
+    - 生成行号映射（Code 行号 -> 源文件行号）
+#>
 function Get-InfinityModule {
     [CmdletBinding()]
     [OutputType([InfinityModule])]

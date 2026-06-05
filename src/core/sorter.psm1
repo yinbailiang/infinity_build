@@ -2,6 +2,14 @@
 ##Import Core.Logger
 ##Import Core.Types
 
+<#
+.SYNOPSIS
+    对 InfinityModule 数组进行拓扑排序，按依赖顺序排列模块。
+.DESCRIPTION
+    使用 Kahn 算法对有向无环图（DAG）进行拓扑排序。
+    依赖关系通过 InfinityModule.Requires 字段声明。
+    检测循环依赖，发现时抛出异常。
+#>
 function Get-InfinityModuleOrdered {
     [CmdletBinding()]
     param(
@@ -80,6 +88,14 @@ function Get-InfinityModuleOrdered {
     return $SortedModules
 }
 
+<#
+.SYNOPSIS
+    从根模块出发，通过 BFS 筛选所有可达模块（树摇优化）。
+.DESCRIPTION
+    以指定的根模块为起点，沿 Requires 依赖边进行广度优先搜索，
+    标记所有可达模块并返回子集。未被依赖的模块将被剔除，
+    从而减小最终输出脚本的体积。
+#>
 function Select-InfinityModuleReachable {
     [CmdletBinding()]
     param(

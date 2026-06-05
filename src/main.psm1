@@ -2,6 +2,22 @@
 ##Import Core
 ##Import Builder
 
+<#
+.SYNOPSIS
+    Infinity Build 主入口函数，读取构建配置、执行构建步骤并输出最终脚本。
+.DESCRIPTION
+    完整的构建管道入口：
+    1. 读取 psproject.json 配置文件
+    2. 解析 System / Output 元信息
+    3. 按配置键顺序依次调用注册的构建器（Source/Std/PreDefineds/Resource/Nuget/Boot）
+    4. 收集所有 InfinityModule，执行拓扑排序
+    5. 可选：从 Boot.Require 出发执行树摇剔除未使用模块
+    6. 链接为 InfinityProgramSegment 并写入输出脚本和调试映射文件
+.PARAMETER ConfigPath
+    构建配置文件路径，默认为 'psproject.json'。
+.PARAMETER ExtraConfig
+    额外的构建步骤配置，会与配置文件合并，用于编程式调用。
+#>
 function Invoke-Main {
     param(
         [Parameter(Mandatory = $false)]

@@ -1,23 +1,3 @@
-class InfinityModule {
-    [string]$Name
-    [System.Collections.Generic.List[string]]$Requires
-    [System.Collections.Generic.List[string]]$Code
-    [System.IO.FileInfo]$SourceInfo
-    [System.Collections.Generic.Dictionary[int, int]]$LineMappings
-}
-class InfinityProgramSegment {
-    [System.Collections.Generic.List[string]]$Code
-    [System.Collections.Generic.Dictionary[int, System.Tuple[string, int]]]$LineMappings
-}
-class ResourceFileInfo {
-    [System.IO.FileInfo]$FileInfo
-    [string]$RelativePath
-}
-class ResourceFileHash {
-    [string]$RelativePath
-    [string]$Hash256
-}
-$Script:ModuleBuilders = @{}
 class NuGetFramework {
     [string]$Framework
     [version]$Version
@@ -2027,6 +2007,30 @@ class LogClient {
         return ""
     }
 }
+class InfinityModule {
+    [string]$Name
+    [System.Collections.Generic.List[string]]$Requires
+    [System.Collections.Generic.List[string]]$Code
+    [System.IO.FileInfo]$SourceInfo
+    [System.Collections.Generic.Dictionary[int, int]]$LineMappings
+}
+class InfinityProgramSegment {
+    [System.Collections.Generic.List[string]]$Code
+    [System.Collections.Generic.Dictionary[int, System.Tuple[string, int]]]$LineMappings
+}
+class ResourceFileInfo {
+    [System.IO.FileInfo]$FileInfo
+    [string]$RelativePath
+}
+class ResourceFileHash {
+    [string]$RelativePath
+    [string]$Hash256
+}
+$Script:ModuleBuilders = @{}
+$Script:NugetLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityNuget")
+$Script:NugetLogger = [LogClient]::new($Script:NugetLoggerServer)
+$Script:BuildLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityBuild")
+$Script:BuildLogger = [LogClient]::new($Script:BuildLoggerServer)
 function Add-PreDefinedVariable {
     [CmdletBinding()]
     param(
@@ -2277,10 +2281,247 @@ function Get-ResourceEmbedModule {
         throw
     }
 }
-$Script:BuildLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityBuild")
-$Script:BuildLogger = [LogClient]::new($Script:BuildLoggerServer)
-$Script:NugetLoggerServer = [LogServer]::new([LogType]::LogDebug, "InfinityNuget")
-$Script:NugetLogger = [LogClient]::new($Script:NugetLoggerServer)
+class NugetSource {
+    [string]$Version = $null
+    [hashtable]$ServiceEndpoints = @{}
+}
+function New-NugetSource {
+    [CmdletBinding()]
+    [OutputType([NugetSource])]
+    param(
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Url
+    )
+    $Source = [NugetSource]::new()
+    try {
+        $RequestParams = @{
+            Uri         = $Url
+            Method      = "Get"
+            TimeoutSec  = 30
+            ErrorAction = "Stop"
+        }
+        $Response = Invoke-WebRequest @RequestParams
+        if (-not $Response.Content) {
+            throw "NuGet 包源响应内容为空：$Source"
+        }
+        try {
+            $Data = $Response.Content | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        }
+        catch {
+            $Script:NugetLogger.Error("NuGet 包源JSON解析失败：$Source，错误信息：$($_.Exception.Message)")
+            throw
+        }
+        $Source.Version = if ($Data.ContainsKey('version')) { $Data['version'] } else { "unknown" }
+        if ($Data.ContainsKey('resources') -and $Data['resources'] -is [array]) {
+            foreach ($Resource in $Data['resources']) {
+                if ($Resource.ContainsKey('@type') -and $Resource.ContainsKey('@id')) {
+                    $Source.ServiceEndpoints[$Resource['@type']] = $Resource['@id'] -replace '/$', ''
+                }
+            }
+        }
+        else {
+            $Script:NugetLogger.Warn("NuGet 包源未找到有效资源列表：$Source")
+        }
+    }
+    catch {
+        if ($_.Exception.Response) {
+            $StatusCode = $_.Exception.Response.StatusCode
+            $StatusDesc = $_.Exception.Response.StatusDescription
+            $Script:NugetLogger.Error("NuGet 包源请求失败: $Source | 状态码: $StatusCode | 描述: $StatusDesc")
+        }
+        else {
+            $Script:NugetLogger.Error("NuGet 包源初始化失败: $Source | 错误: $($_.Exception.Message)")
+        }
+        throw
+    }
+    return $Source
+}
+function Search-NugetPackage {
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNull()]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Query,
+        [Parameter(Mandatory = $false)]
+        [string]$PackageType,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 1000)]
+        [int]$Take = 20,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(0, 3000)]
+        [int]$Skip = 0,
+        [Parameter(Mandatory = $false)]
+        [switch]$Prerelease
+    )
+    begin {
+        if ($Source.ServiceEndpoints.ContainsKey("SearchQueryService/3.5.0")) {
+            $SearchEndpoint = $Source.ServiceEndpoints["SearchQueryService/3.5.0"]
+        }
+        elseif ($Source.ServiceEndpoints.ContainsKey("SearchQueryService")) {
+            if ($PackageType) {
+                $Script:NugetLogger.Warn("包源不支持 SearchQueryService/3.5.0 无法筛选包类型")
+                $PackageType = $null
+            }
+            $SearchEndpoint = $Source.ServiceEndpoints["SearchQueryService"]
+        }
+        else {
+            throw "包源缺失 SearchQueryService 端点"
+        }
+    }
+    process {
+        try {
+            $QueryParams = [System.Web.HttpUtility]::ParseQueryString([string]::Empty)
+            $QueryParams.Add("q", [System.Web.HttpUtility]::UrlEncode($Query))
+            $QueryParams.Add("take", $Take.ToString())
+            $QueryParams.Add("skip", $Skip.ToString())
+            $QueryParams.Add("prerelease", "$Prerelease".ToLower())
+            if ($PackageType) {
+                $QueryParams.Add("packageType", [System.Web.HttpUtility]::UrlEncode($PackageType))
+            }
+            $Url = "$($SearchEndpoint)?$($QueryParams.ToString())"
+            $Script:NugetLogger.Info("尝试请求 $Url")
+            $RequestParams = @{
+                Uri         = $Url
+                Method      = "Get"
+                TimeoutSec  = 30
+                ErrorAction = "Stop"
+            }
+            $Response = Invoke-RestMethod @RequestParams
+            if ($Response -and $Response.Data) {
+                return $Response.Data
+            }
+            else {
+                $Script:NugetLogger.Warn("NuGet 搜索无结果：Query=$Query | Source=$($SearchEndpoint)")
+                return @()
+            }
+        }
+        catch {
+            $ErrorMsg = if ($_.Exception.Response) {
+                $StatusCode = [int]$_.Exception.Response.StatusCode
+                $ReasonPhrase = $_.Exception.Response.ReasonPhrase
+                "NuGet 搜索请求失败 | URL: $Url | 状态码: $StatusCode | 原因: $ReasonPhrase"
+            }
+            else {
+                "NuGet 搜索失败 | Query: $Query | 错误: $($_.Exception.Message)"
+            }
+            $Script:NugetLogger.Error($ErrorMsg)
+            throw
+        }
+    }
+}
+function Get-NugetPackageVersions {
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Id,
+        [Parameter(Mandatory = $false)]
+        [switch]$Preview
+    )
+    if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
+        throw "包源不支持 PackageBaseAddress/3.0.0"
+    }
+    $PackageBaseAddress = $Source.ServiceEndpoints['PackageBaseAddress/3.0.0'];
+    $Url = "$($PackageBaseAddress)/$($Id.ToLowerInvariant())/index.json"
+    $Script:NugetLogger.Info("尝试请求 $Url")
+    try {
+        $Response = Invoke-RestMethod -Uri $Url -Method Get
+        $Versions = $Response.versions | ConvertTo-NuGetVersion
+        return $Versions | Where-Object { $Preview -or (-not $_.IsPrerelease()) }
+    }
+    catch {
+        switch ([int]$_.Exception.Response.StatusCode) {
+            404 {
+                $Script:NugetLogger.Error("包: $Id 不存在")
+            }
+            default {
+                $Script:NugetLogger.Error("未知错误")
+            }
+        }
+        throw
+    }
+}
+function Get-NugetPackagManifest {
+    [CmdletBinding()]
+    [OutputType([xml])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Id,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Version
+    )
+    if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
+        throw "包源不支持 PackageBaseAddress/3.0.0"
+    }
+    $PackageBaseAddress = $Source.ServiceEndpoints['PackageBaseAddress/3.0.0'];
+    $Url = "$($PackageBaseAddress)/$($Id.ToLowerInvariant())/$($Version.ToLowerInvariant())/$($Id.ToLowerInvariant()).nuspec"
+    $Script:NugetLogger.Info("尝试请求 $Url")
+    try {
+        $Response = Invoke-WebRequest -Uri $Url -Method Get
+        return [xml]$Response.Content
+    }
+    catch {
+        switch ([int]$_.Exception.Response.StatusCode) {
+            404 {
+                $Script:NugetLogger.Error("包: $Id-$Version 不存在")
+            }
+            default {
+                $Script:NugetLogger.Error("未知错误")
+            }
+        }
+        throw
+    }
+}
+function Get-NugetPackagContent {
+    [CmdletBinding()]
+    [OutputType([byte[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Id,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Version
+    )
+    if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
+        throw "包源不支持 PackageBaseAddress/3.0.0"
+    }
+    $PackageBaseAddress = $Source.ServiceEndpoints['PackageBaseAddress/3.0.0'];
+    $Url = "$($PackageBaseAddress)/$($Id.ToLowerInvariant())/$($Version.ToLowerInvariant())/$($Id.ToLowerInvariant()).$($Version.ToLowerInvariant()).nupkg"
+    $Script:NugetLogger.Info("尝试请求 $Url")
+    try {
+        $Response = Invoke-WebRequest -Uri $Url -Method Get
+        return [byte[]]$Response.Content
+    }
+    catch {
+        switch ([int]$_.Exception.Response.StatusCode) {
+            404 {
+                $Script:NugetLogger.Error("包: $Id-$Version 不存在")
+            }
+            default {
+                $Script:NugetLogger.Error("未知错误")
+            }
+        }
+        throw
+    }
+}
 function Find-Files {
     [CmdletBinding()]
     param(
@@ -2782,316 +3023,6 @@ $Script:ModuleBuilders["Resource"] = {
         return $Ret
     }
 }
-class NugetSource {
-    [string]$Version = $null
-    [hashtable]$ServiceEndpoints = @{}
-}
-function New-NugetSource {
-    [CmdletBinding()]
-    [OutputType([NugetSource])]
-    param(
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Url
-    )
-    $Source = [NugetSource]::new()
-    try {
-        $RequestParams = @{
-            Uri         = $Url
-            Method      = "Get"
-            TimeoutSec  = 30
-            ErrorAction = "Stop"
-        }
-        $Response = Invoke-WebRequest @RequestParams
-        if (-not $Response.Content) {
-            throw "NuGet 包源响应内容为空：$Source"
-        }
-        try {
-            $Data = $Response.Content | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-        }
-        catch {
-            $Script:NugetLogger.Error("NuGet 包源JSON解析失败：$Source，错误信息：$($_.Exception.Message)")
-            throw
-        }
-        $Source.Version = if ($Data.ContainsKey('version')) { $Data['version'] } else { "unknown" }
-        if ($Data.ContainsKey('resources') -and $Data['resources'] -is [array]) {
-            foreach ($Resource in $Data['resources']) {
-                if ($Resource.ContainsKey('@type') -and $Resource.ContainsKey('@id')) {
-                    $Source.ServiceEndpoints[$Resource['@type']] = $Resource['@id'] -replace '/$', ''
-                }
-            }
-        }
-        else {
-            $Script:NugetLogger.Warn("NuGet 包源未找到有效资源列表：$Source")
-        }
-    }
-    catch {
-        if ($_.Exception.Response) {
-            $StatusCode = $_.Exception.Response.StatusCode
-            $StatusDesc = $_.Exception.Response.StatusDescription
-            $Script:NugetLogger.Error("NuGet 包源请求失败: $Source | 状态码: $StatusCode | 描述: $StatusDesc")
-        }
-        else {
-            $Script:NugetLogger.Error("NuGet 包源初始化失败: $Source | 错误: $($_.Exception.Message)")
-        }
-        throw
-    }
-    return $Source
-}
-function Search-NugetPackage {
-    [CmdletBinding()]
-    [OutputType([hashtable[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNull()]
-        [NugetSource]$Source,
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Query,
-        [Parameter(Mandatory = $false)]
-        [string]$PackageType,
-        [Parameter(Mandatory = $false)]
-        [ValidateRange(1, 1000)]
-        [int]$Take = 20,
-        [Parameter(Mandatory = $false)]
-        [ValidateRange(0, 3000)]
-        [int]$Skip = 0,
-        [Parameter(Mandatory = $false)]
-        [switch]$Prerelease
-    )
-    begin {
-        if ($Source.ServiceEndpoints.ContainsKey("SearchQueryService/3.5.0")) {
-            $SearchEndpoint = $Source.ServiceEndpoints["SearchQueryService/3.5.0"]
-        }
-        elseif ($Source.ServiceEndpoints.ContainsKey("SearchQueryService")) {
-            if ($PackageType) {
-                $Script:NugetLogger.Warn("包源不支持 SearchQueryService/3.5.0 无法筛选包类型")
-                $PackageType = $null
-            }
-            $SearchEndpoint = $Source.ServiceEndpoints["SearchQueryService"]
-        }
-        else {
-            throw "包源缺失 SearchQueryService 端点"
-        }
-    }
-    process {
-        try {
-            $QueryParams = [System.Web.HttpUtility]::ParseQueryString([string]::Empty)
-            $QueryParams.Add("q", [System.Web.HttpUtility]::UrlEncode($Query))
-            $QueryParams.Add("take", $Take.ToString())
-            $QueryParams.Add("skip", $Skip.ToString())
-            $QueryParams.Add("prerelease", "$Prerelease".ToLower())
-            if ($PackageType) {
-                $QueryParams.Add("packageType", [System.Web.HttpUtility]::UrlEncode($PackageType))
-            }
-            $Url = "$($SearchEndpoint)?$($QueryParams.ToString())"
-            $Script:NugetLogger.Info("尝试请求 $Url")
-            $RequestParams = @{
-                Uri         = $Url
-                Method      = "Get"
-                TimeoutSec  = 30
-                ErrorAction = "Stop"
-            }
-            $Response = Invoke-RestMethod @RequestParams
-            if ($Response -and $Response.Data) {
-                return $Response.Data
-            }
-            else {
-                $Script:NugetLogger.Warn("NuGet 搜索无结果：Query=$Query | Source=$($SearchEndpoint)")
-                return @()
-            }
-        }
-        catch {
-            $ErrorMsg = if ($_.Exception.Response) {
-                $StatusCode = [int]$_.Exception.Response.StatusCode
-                $ReasonPhrase = $_.Exception.Response.ReasonPhrase
-                "NuGet 搜索请求失败 | URL: $Url | 状态码: $StatusCode | 原因: $ReasonPhrase"
-            }
-            else {
-                "NuGet 搜索失败 | Query: $Query | 错误: $($_.Exception.Message)"
-            }
-            $Script:NugetLogger.Error($ErrorMsg)
-            throw
-        }
-    }
-}
-function Get-NugetPackageVersions {
-    [CmdletBinding()]
-    [OutputType([hashtable[]])]
-    param (
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [NugetSource]$Source,
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Id,
-        [Parameter(Mandatory = $false)]
-        [switch]$Preview
-    )
-    if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
-        throw "包源不支持 PackageBaseAddress/3.0.0"
-    }
-    $PackageBaseAddress = $Source.ServiceEndpoints['PackageBaseAddress/3.0.0'];
-    $Url = "$($PackageBaseAddress)/$($Id.ToLowerInvariant())/index.json"
-    $Script:NugetLogger.Info("尝试请求 $Url")
-    try {
-        $Response = Invoke-RestMethod -Uri $Url -Method Get
-        $Versions = $Response.versions | ConvertTo-NuGetVersion
-        return $Versions | Where-Object { $Preview -or (-not $_.IsPrerelease()) }
-    }
-    catch {
-        switch ([int]$_.Exception.Response.StatusCode) {
-            404 {
-                $Script:NugetLogger.Error("包: $Id 不存在")
-            }
-            default {
-                $Script:NugetLogger.Error("未知错误")
-            }
-        }
-        throw
-    }
-}
-function Get-NugetPackagManifest {
-    [CmdletBinding()]
-    [OutputType([xml])]
-    param (
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [NugetSource]$Source,
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Id,
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Version
-    )
-    if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
-        throw "包源不支持 PackageBaseAddress/3.0.0"
-    }
-    $PackageBaseAddress = $Source.ServiceEndpoints['PackageBaseAddress/3.0.0'];
-    $Url = "$($PackageBaseAddress)/$($Id.ToLowerInvariant())/$($Version.ToLowerInvariant())/$($Id.ToLowerInvariant()).nuspec"
-    $Script:NugetLogger.Info("尝试请求 $Url")
-    try {
-        $Response = Invoke-WebRequest -Uri $Url -Method Get
-        return [xml]$Response.Content
-    }
-    catch {
-        switch ([int]$_.Exception.Response.StatusCode) {
-            404 {
-                $Script:NugetLogger.Error("包: $Id-$Version 不存在")
-            }
-            default {
-                $Script:NugetLogger.Error("未知错误")
-            }
-        }
-        throw
-    }
-}
-function Get-NugetPackagContent {
-    [CmdletBinding()]
-    [OutputType([byte[]])]
-    param (
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [NugetSource]$Source,
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Id,
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [string]$Version
-    )
-    if (-not $Source.ServiceEndpoints.ContainsKey('PackageBaseAddress/3.0.0')) {
-        throw "包源不支持 PackageBaseAddress/3.0.0"
-    }
-    $PackageBaseAddress = $Source.ServiceEndpoints['PackageBaseAddress/3.0.0'];
-    $Url = "$($PackageBaseAddress)/$($Id.ToLowerInvariant())/$($Version.ToLowerInvariant())/$($Id.ToLowerInvariant()).$($Version.ToLowerInvariant()).nupkg"
-    $Script:NugetLogger.Info("尝试请求 $Url")
-    try {
-        $Response = Invoke-WebRequest -Uri $Url -Method Get
-        return [byte[]]$Response.Content
-    }
-    catch {
-        switch ([int]$_.Exception.Response.StatusCode) {
-            404 {
-                $Script:NugetLogger.Error("包: $Id-$Version 不存在")
-            }
-            default {
-                $Script:NugetLogger.Error("未知错误")
-            }
-        }
-        throw
-    }
-}
-$Script:ModuleBuilders["Source"] = {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$Config
-    )
-    $SourceFiles = Find-Files -Filters $Config.Files
-    $Script:BuildLogger.Info("找到 $($SourceFiles.Count) 个源文件")
-    if ($SourceFiles.Count -eq 0) {
-        $Script:BuildLogger.Warn("未找到任何源文件")
-        return @()
-    }
-    $Modules = $SourceFiles | Select-Object -Unique | ForEach-Object {
-        Get-InfinityModule -Path $_
-    }
-    return @($Modules)
-}
-$Script:ModuleBuilders["Std"] = {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [hashtable]$Config
-    )
-    if ($Config.ContainsKey("Enable")) {
-        if (-not $Config.Enable) {
-            return @()
-        }
-    }
-    $AllSourceFiles = [System.Collections.Generic.List[string]]::new()
-    $StdLibPath = Join-Path $PSScriptRoot "std"
-    if (Test-Path $StdLibPath -PathType Container) {
-        $StdJsonPath = Join-Path $StdLibPath "std.json"
-        $IncludePatterns = @()
-        if (Test-Path $StdJsonPath -PathType Leaf) {
-            try {
-                $StdJsonConfig = Get-Content $StdJsonPath -Raw | ConvertFrom-Json -AsHashtable
-                if ($StdJsonConfig.ContainsKey("Std") -and $StdJsonConfig["Std"] -is [array]) {
-                    $IncludePatterns = $StdJsonConfig["Std"]
-                    $Script:BuildLogger.Info("从 std.json 读取包含模式: $($IncludePatterns -join ', ')")
-                }
-            }
-            catch {
-                $Script:BuildLogger.Warn("读取 std.json 失败: $($_.Exception.Message)，使用默认模式 *.psm1")
-            }
-        }
-        if ($IncludePatterns.Count -eq 0) {
-            $Script:BuildLogger.Info("std.json 未配置或不存在，使用默认模式 *.psm1")
-            $IncludePatterns = @("*.psm1")
-        }
-        $BuiltinFiles = Find-Files -Filters $IncludePatterns -Path $StdLibPath
-        foreach ($f in $BuiltinFiles) {
-            $AllSourceFiles.Add($f)
-        }
-        $Script:BuildLogger.Info("内置 Std: 找到 $($BuiltinFiles.Count) 个源文件")
-    }
-    else {
-        $Script:BuildLogger.Warn("标准库目录不存在: $StdLibPath")
-    }
-    $Script:BuildLogger.Info("Std 总共收集 $($AllSourceFiles.Count) 个源文件")
-    if ($AllSourceFiles.Count -eq 0) {
-        $Script:BuildLogger.Warn("未找到任何标准库源文件")
-        return @()
-    }
-    $UniqueFiles = $AllSourceFiles | Select-Object -Unique
-    $Modules = $UniqueFiles | ForEach-Object {
-        Get-InfinityModule -Path $_
-    }
-    return @($Modules)
-}
 class NugetPackageLibraryManifest {
     [hashtable]$Packages = @{}
 }
@@ -3317,6 +3248,75 @@ function Uninstall-NugetPackage {
         $Script:NugetLogger.Error("卸载包失败: $($_.Exception.Message)")
         throw
     }
+}
+$Script:ModuleBuilders["Source"] = {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+    $SourceFiles = Find-Files -Filters $Config.Files
+    $Script:BuildLogger.Info("找到 $($SourceFiles.Count) 个源文件")
+    if ($SourceFiles.Count -eq 0) {
+        $Script:BuildLogger.Warn("未找到任何源文件")
+        return @()
+    }
+    $Modules = $SourceFiles | Select-Object -Unique | ForEach-Object {
+        Get-InfinityModule -Path $_
+    }
+    return @($Modules)
+}
+$Script:ModuleBuilders["Std"] = {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+    if ($Config.ContainsKey("Enable")) {
+        if (-not $Config.Enable) {
+            return @()
+        }
+    }
+    $AllSourceFiles = [System.Collections.Generic.List[string]]::new()
+    $StdLibPath = Join-Path $PSScriptRoot "std"
+    if (Test-Path $StdLibPath -PathType Container) {
+        $StdJsonPath = Join-Path $StdLibPath "std.json"
+        $IncludePatterns = @()
+        if (Test-Path $StdJsonPath -PathType Leaf) {
+            try {
+                $StdJsonConfig = Get-Content $StdJsonPath -Raw | ConvertFrom-Json -AsHashtable
+                if ($StdJsonConfig.ContainsKey("Std") -and $StdJsonConfig["Std"] -is [array]) {
+                    $IncludePatterns = $StdJsonConfig["Std"]
+                    $Script:BuildLogger.Info("从 std.json 读取包含模式: $($IncludePatterns -join ', ')")
+                }
+            }
+            catch {
+                $Script:BuildLogger.Warn("读取 std.json 失败: $($_.Exception.Message)，使用默认模式 *.psm1")
+            }
+        }
+        if ($IncludePatterns.Count -eq 0) {
+            $Script:BuildLogger.Info("std.json 未配置或不存在，使用默认模式 *.psm1")
+            $IncludePatterns = @("*.psm1")
+        }
+        $BuiltinFiles = Find-Files -Filters $IncludePatterns -Path $StdLibPath
+        foreach ($f in $BuiltinFiles) {
+            $AllSourceFiles.Add($f)
+        }
+        $Script:BuildLogger.Info("内置 Std: 找到 $($BuiltinFiles.Count) 个源文件")
+    }
+    else {
+        $Script:BuildLogger.Warn("标准库目录不存在: $StdLibPath")
+    }
+    $Script:BuildLogger.Info("Std 总共收集 $($AllSourceFiles.Count) 个源文件")
+    if ($AllSourceFiles.Count -eq 0) {
+        $Script:BuildLogger.Warn("未找到任何标准库源文件")
+        return @()
+    }
+    $UniqueFiles = $AllSourceFiles | Select-Object -Unique
+    $Modules = $UniqueFiles | ForEach-Object {
+        Get-InfinityModule -Path $_
+    }
+    return @($Modules)
 }
 $Script:ImportedPackages = @{}
 $Script:ImportedAssemblies = @{}

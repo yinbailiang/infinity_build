@@ -2,6 +2,13 @@
 ##Import Std.Nuget
 ##Import Builder.Register
 
+<#
+.NOTES
+    Nuget 构建器。
+    管理 NuGet 包依赖，连接 NuGet 源下载包到本地包库。
+    生成 Builtin.Nuget 标记模块。
+#>
+
 #region Nuget 构建器
 
 $Script:ModuleBuilders["Nuget"] = {

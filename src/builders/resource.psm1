@@ -4,6 +4,14 @@
 ##Import Core.Types
 ##Import Core.Resource
 
+<#
+.NOTES
+    Resource 构建器。
+    将外部资源文件打包嵌入输出脚本。
+    支持 Builtin（Base64 内嵌）和 External（独立 ZIP 文件）两种模式。
+    通过 SHA256 快照实现增量构建，仅在资源变更时重新打包。
+#>
+
 #region Resource 构建器
 
 $Script:ModuleBuilders["Resource"] = {

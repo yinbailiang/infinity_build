@@ -3,6 +3,13 @@
 ##Import Core.Logger
 ##Import Core.Types
 
+<#
+.NOTES
+    Boot 构建器。
+    生成 Builtin.Boot 入口模块，包含 EntryPoint 函数调用。
+    Require 字段指定依赖的模块名，触发树摇优化。
+#>
+
 #region Boot 构建器
 
 $Script:ModuleBuilders["Boot"] = {

@@ -4,6 +4,12 @@
 ##Import Core.Finder
 ##Import Core.Parser
 
+<#
+.NOTES
+    Source 构建器。
+    收集用户 .psm1 源文件，通过 Finder 搜索、Parser 解析为 InfinityModule 数组。
+#>
+
 #region Source 构建器
 
 $Script:ModuleBuilders["Source"] = {

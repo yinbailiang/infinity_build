@@ -4,6 +4,13 @@
 ##Import Core.Parser
 ##Import Core.Finder
 
+<#
+.NOTES
+    Std 标准库构建器。
+    读取 std/std.json 配置，收集并解析标准库源文件。
+    支持 Enable 开关和自定义包含模式。
+#>
+
 #region Std 构建器
 
 $Script:ModuleBuilders["Std"] = {

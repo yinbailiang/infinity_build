@@ -3,6 +3,13 @@
 
 #region 文件处理
 
+<#
+.SYNOPSIS
+    根据 glob 模式过滤器查找匹配的文件。
+.DESCRIPTION
+    支持 '目录/文件模式' 格式（如 'src/core/*.psm1'），
+    仅匹配单层目录。返回匹配文件的绝对路径数组。
+#>
 function Find-Files {
     [CmdletBinding()]
     param(

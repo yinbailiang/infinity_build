@@ -4,6 +4,13 @@
 ##Import Core.Types
 ##Import Core.PreDefineds
 
+<#
+.NOTES
+    PreDefineds 构建器。
+    生成 Builtin.PreDefineds 模块，将编译期常量注入输出脚本。
+    支持 Default 系统变量（$BuildName/$BuildVersion/$BuildMode）和自定义 Defineds。
+#>
+
 #region PreDefineds 构建器
 
 $Script:ModuleBuilders["PreDefineds"] = {

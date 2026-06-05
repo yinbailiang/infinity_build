@@ -2,6 +2,15 @@
 ##Import Core.Types
 
 #region 资源快照
+
+<#
+.SYNOPSIS
+    计算资源文件集合的 SHA256 快照。
+.DESCRIPTION
+    遍历所有 ResourceFileInfo，对每个存在的文件计算 SHA256 哈希值，
+    返回 ResourceFileHash 数组用于后续的变更检测。
+    文件不存在或计算失败时发出警告并跳过。
+#>
 function Get-ResourceSnapshot {
     [CmdletBinding()]
     param(
@@ -37,6 +46,14 @@ function Get-ResourceSnapshot {
     return $HashList.ToArray()
 }
 
+<#
+.SYNOPSIS
+    比较新旧两份资源快照，检测文件变更。
+.DESCRIPTION
+    对比新快照与旧快照中的文件列表和哈希值：
+    - 新增文件、删除文件、哈希变化均视为变更
+    - 完全相同返回 $true，有差异返回 $false
+#>
 function Compare-ResourceSnapshot {
     [CmdletBinding()]
     param(
@@ -88,6 +105,13 @@ function Compare-ResourceSnapshot {
     return $IsSame
 }
 
+<#
+.SYNOPSIS
+    将资源快照持久化保存为 JSON 文件。
+.DESCRIPTION
+    将 ResourceFileHash 数组序列化为 JSON 格式并写入指定路径，
+    用于下次构建时的增量对比。
+#>
 function Write-ResourceSnapshot {
     [CmdletBinding()]
     param(
@@ -114,6 +138,13 @@ function Write-ResourceSnapshot {
     }
 }
 
+<#
+.SYNOPSIS
+    从 JSON 文件读取之前保存的资源快照。
+.DESCRIPTION
+    反序列化指定路径的 JSON 快照文件为 ResourceFileHash 数组。
+    文件不存在或读取失败时返回 $null。
+#>
 function Read-ResourceSnapshot {
     [CmdletBinding()]
     param(
@@ -150,6 +181,13 @@ function Read-ResourceSnapshot {
 
 #region 资源压缩
 
+<#
+.SYNOPSIS
+    将资源文件集合压缩为 ZIP 包。
+.DESCRIPTION
+    遍历所有 ResourceFileInfo，使用 System.IO.Compression.ZipArchive
+    创建 ZIP 文件，保留目标相对路径结构。支持指定压缩级别。
+#>
 function Compress-ResourceFiles {
     [CmdletBinding()]
     param(
@@ -230,6 +268,13 @@ function Compress-ResourceFiles {
 
 #region 资源嵌入模块
 
+<#
+.SYNOPSIS
+    根据 ZIP 文件生成资源嵌入模块（Builtin.Resource）。
+.DESCRIPTION
+    Builtin 模式：将 ZIP 文件 Base64 编码后嵌入为 $BuiltinResourceZipContent 变量。
+    External 模式：仅记录 ZIP 文件名和 SHA256 哈希，运行时从外部路径加载。
+#>
 function Get-ResourceEmbedModule {
     [CmdletBinding()]
     param(
