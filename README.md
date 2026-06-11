@@ -1,6 +1,6 @@
-![](doc/res/infinity_icon/256x256.png)
-
 # Infinity Build
+
+![icon](doc/res/infinity_icon/256x256.png)
 
 ## 为PowerShell设计的程序开发套件
 
