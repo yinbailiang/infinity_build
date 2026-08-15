@@ -199,6 +199,9 @@ class LogClient {
     [void]Warn([string]$Message) {
         $this.WriteInternal([LogType]::LogWarn, $Message)
     }
+    [void]Warning([string]$Message) {
+        $this.WriteInternal([LogType]::LogWarn, $Message)
+    }
     [void]Info([string]$Message) {
         $this.WriteInternal([LogType]::LogInfo, $Message)
     }
