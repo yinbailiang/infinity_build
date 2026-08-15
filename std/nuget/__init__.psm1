@@ -5,12 +5,13 @@
 ##Import Std.Nuget.Source
 ##Import Std.Nuget.Library
 ##Import Std.Nuget.Loader
+##Import Std.Nuget.Solver
 
 <#
 .NOTES
     Name: infinity_nuget
     Author: YinBailiang
-    Version: 1.0.0
+    Version: 1.1.0
 .SYNOPSIS
     PowerShell 工具用于下载和管理 Nuget 包
 .DESCRIPTION
@@ -20,4 +21,5 @@
     3. 管理本地包缓存
     4. 更新已安装的包
     5. 管理包源
+    6. 依赖展开与版本约束闭包求解
 #>
