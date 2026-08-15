@@ -1985,6 +1985,9 @@ class LogClient {
     [void]Warn([string]$Message) {
         $this.WriteInternal([LogType]::LogWarn, $Message)
     }
+    [void]Warning([string]$Message) {
+        $this.WriteInternal([LogType]::LogWarn, $Message)
+    }
     [void]Info([string]$Message) {
         $this.WriteInternal([LogType]::LogInfo, $Message)
     }
@@ -3248,6 +3251,1218 @@ function Uninstall-NugetPackage {
         $Script:NugetLogger.Error("卸载包失败: $($_.Exception.Message)")
         throw
     }
+}
+enum DependencyDisposition {
+    Acceptable
+    Accepted
+    Rejected
+    PotentiallyDowngraded
+    Cycle
+}
+class DependencyConstraint {
+    [string]       $PackageId
+    [VersionRange] $VersionRange
+    [string]       $TargetFramework
+    DependencyConstraint([string] $PackageId, [VersionRange] $VersionRange) {
+        $this.PackageId = $PackageId
+        $this.VersionRange = $VersionRange
+        $this.TargetFramework = ''
+    }
+    DependencyConstraint([string] $PackageId, [VersionRange] $VersionRange, [string] $TargetFramework) {
+        $this.PackageId = $PackageId
+        $this.VersionRange = $VersionRange
+        $this.TargetFramework = $TargetFramework
+    }
+    [string] ToString() {
+        return "$($this.PackageId) $($this.VersionRange.ToNormalizedString())"
+    }
+}
+class DependencyNode {
+    [string]                 $PackageId
+    [NuGetVersion]           $ResolvedVersion
+    [VersionRange]           $VersionRange
+    [DependencyConstraint[]] $Dependencies
+    [DependencyNode[]]       $Children
+    [DependencyNode]         $OuterNode
+    [System.Collections.Generic.List[DependencyNode]] $ParentNodes
+    [int]                    $Depth
+    [string]                 $TargetFramework
+    [DependencyDisposition]  $Disposition
+    DependencyNode([string] $PackageId, [NuGetVersion] $ResolvedVersion, [VersionRange] $VersionRange, [int] $Depth) {
+        $this.PackageId = $PackageId
+        $this.ResolvedVersion = $ResolvedVersion
+        $this.VersionRange = $VersionRange
+        $this.Dependencies = @()
+        $this.Children = @()
+        $this.OuterNode = $null
+        $this.ParentNodes = [System.Collections.Generic.List[DependencyNode]]::new()
+        $this.Depth = $Depth
+        $this.TargetFramework = ''
+        $this.Disposition = [DependencyDisposition]::Acceptable
+    }
+    [bool] HasDependencies() {
+        return $this.Dependencies.Count -gt 0
+    }
+    [bool] HasChildren() {
+        return $this.Children.Count -gt 0
+    }
+    [bool] IsAccepted() {
+        return $this.Disposition -eq [DependencyDisposition]::Accepted
+    }
+    [bool] IsRejected() {
+        return $this.Disposition -eq [DependencyDisposition]::Rejected
+    }
+    [bool] AreAllParentsRejected() {
+        if ($this.ParentNodes.Count -eq 0) { return $false }
+        foreach ($p in $this.ParentNodes) {
+            if (-not $p.IsRejected()) { return $false }
+        }
+        return $true
+    }
+    [string] ToString() {
+        $indent = '  ' * $this.Depth
+        $disposition = $this.Disposition.ToString()
+        return "$indent$($this.PackageId) v$($this.ResolvedVersion.NormalizedVersion) [$disposition]"
+    }
+}
+class DependencyTracker {
+    [hashtable] $_entries
+    DependencyTracker() {
+        $this._entries = @{}
+    }
+    [void] Track([DependencyNode] $node) {
+        $key = $node.PackageId.ToLowerInvariant()
+        if (-not $this._entries.ContainsKey($key)) {
+            $this._entries[$key] = @{
+                Versions = [System.Collections.Generic.List[DependencyNode]]::new()
+                Ambiguous = $false
+            }
+        }
+        $this._entries[$key].Versions.Add($node)
+    }
+    [bool] IsDisputed([DependencyNode] $node) {
+        $key = $node.PackageId.ToLowerInvariant()
+        if (-not $this._entries.ContainsKey($key)) { return $false }
+        $versions = $this._entries[$key].Versions
+        if ($versions.Count -le 1) { return $false }
+        $firstVersion = $versions[0].ResolvedVersion.NormalizedVersion
+        for ($i = 1; $i -lt $versions.Count; $i++) {
+            if ($versions[$i].ResolvedVersion.NormalizedVersion -ne $firstVersion) {
+                return $true
+            }
+        }
+        return $false
+    }
+    [bool] IsBestVersion([DependencyNode] $node) {
+        $key = $node.PackageId.ToLowerInvariant()
+        if (-not $this._entries.ContainsKey($key)) { return $true }
+        foreach ($known in $this._entries[$key].Versions) {
+            $cmp = Compare-NugetVersionInternal -VersionA $node.ResolvedVersion -VersionB $known.ResolvedVersion -ComparisonMode ([VersionComparison]::VersionRelease)
+            if ($cmp -lt 0) {
+                return $false
+            }
+        }
+        return $true
+    }
+    [void] MarkAmbiguous([DependencyNode] $node) {
+        $key = $node.PackageId.ToLowerInvariant()
+        if ($this._entries.ContainsKey($key)) {
+            $this._entries[$key].Ambiguous = $true
+        }
+    }
+    [bool] IsAmbiguous([DependencyNode] $node) {
+        $key = $node.PackageId.ToLowerInvariant()
+        if (-not $this._entries.ContainsKey($key)) { return $false }
+        return $this._entries[$key].Ambiguous
+    }
+    [void] Clear() {
+        $this._entries = @{}
+    }
+}
+class DependencyResolutionContext {
+    [NugetSource] $Source
+    [hashtable]   $Resolved
+    [hashtable]   $InProgress
+    [hashtable]   $VersionCache
+    [hashtable]   $DependencyCache
+    [hashtable]   $Constraints
+    [System.Collections.Generic.List[hashtable]] $ResolutionSnapshots
+    [int]         $MaxDepth
+    [int]         $MaxConflictRetries
+    [string]      $TargetFramework
+    DependencyResolutionContext([NugetSource] $Source) {
+        $this.Source = $Source
+        $this.Resolved = @{}
+        $this.InProgress = @{}
+        $this.VersionCache = @{}
+        $this.DependencyCache = @{}
+        $this.Constraints = @{}
+        $this.ResolutionSnapshots = [System.Collections.Generic.List[hashtable]]::new()
+        $this.MaxDepth = 50
+        $this.MaxConflictRetries = 20
+        $this.TargetFramework = ''
+    }
+}
+class DependencyResolutionResult {
+    [bool]             $Success
+    [DependencyNode[]] $RootNodes
+    [hashtable]        $ResolvedPackages
+    [string[]]         $Errors
+    [int]              $TotalPackages
+    [int]              $MaxDepth
+    DependencyResolutionResult() {
+        $this.Success = $false
+        $this.RootNodes = @()
+        $this.ResolvedPackages = @{}
+        $this.Errors = @()
+        $this.TotalPackages = 0
+        $this.MaxDepth = 0
+    }
+}
+function Get-NuspecDependencies {
+    [CmdletBinding()]
+    [OutputType([DependencyConstraint[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [xml]$NuspecXml,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetFramework
+    )
+    $Result = [System.Collections.Generic.List[DependencyConstraint]]::new()
+    $Seen = [System.Collections.Generic.HashSet[string]]::new()
+    $Metadata = $NuspecXml.package.metadata
+    if (-not $Metadata) {
+        $Script:NugetLogger.Warn("nuspec 缺少 metadata 节点")
+        return $Result.ToArray()
+    }
+    $DependenciesNode = $Metadata.dependencies
+    if (-not $DependenciesNode) {
+        return $Result.ToArray()
+    }
+    $Groups = @($DependenciesNode.group)
+    if ($Groups.Count -eq 0) {
+        $FlatDeps = @($DependenciesNode.dependency)
+        foreach ($dep in $FlatDeps) {
+            $constraint = Parse-DependencyElement -DependencyElement $dep
+            if ($constraint -and $Seen.Add($constraint.PackageId.ToLowerInvariant())) {
+                $Result.Add($constraint)
+            }
+        }
+        return $Result.ToArray()
+    }
+    if ($TargetFramework) {
+        try {
+            $TargetFx = ConvertTo-NuGetFramework -FrameworkString $TargetFramework
+        }
+        catch {
+            $Script:NugetLogger.Warn("无法解析目标框架 '$TargetFramework'，返回所有依赖")
+            $TargetFx = $null
+        }
+        $MatchedGroups = [System.Collections.Generic.List[object]]::new()
+        $FallbackGroups = [System.Collections.Generic.List[object]]::new()
+        foreach ($group in $Groups) {
+            $GroupTFM = $group.targetFramework
+            if (-not $GroupTFM) {
+                $FallbackGroups.Add($group)
+                continue
+            }
+            if ($TargetFx) {
+                try {
+                    $GroupFx = ConvertTo-NuGetFramework -FrameworkString $GroupTFM
+                    if (Test-NuGetFrameworkCompatibility -Target $TargetFx -Candidate $GroupFx) {
+                        $MatchedGroups.Add($group)
+                    }
+                }
+                catch {
+                    $Script:NugetLogger.Warn("无法解析依赖组框架 '$GroupTFM'")
+                }
+            }
+        }
+        $GroupsToUse = if ($MatchedGroups.Count -gt 0) { $MatchedGroups } else { $FallbackGroups }
+        foreach ($group in $GroupsToUse) {
+            $GroupDeps = @($group.dependency)
+            foreach ($dep in $GroupDeps) {
+                $constraint = Parse-DependencyElement -DependencyElement $dep
+                if ($constraint) {
+                    $constraint.TargetFramework = $group.targetFramework
+                    if ($Seen.Add($constraint.PackageId.ToLowerInvariant())) {
+                        $Result.Add($constraint)
+                    }
+                }
+            }
+        }
+    }
+    else {
+        foreach ($group in $Groups) {
+            $GroupDeps = @($group.dependency)
+            foreach ($dep in $GroupDeps) {
+                $constraint = Parse-DependencyElement -DependencyElement $dep
+                if ($constraint) {
+                    $constraint.TargetFramework = $group.targetFramework
+                    if ($Seen.Add($constraint.PackageId.ToLowerInvariant())) {
+                        $Result.Add($constraint)
+                    }
+                }
+            }
+        }
+    }
+    return $Result.ToArray()
+}
+function Parse-DependencyElement {
+    [CmdletBinding()]
+    [OutputType([DependencyConstraint])]
+    param (
+        [Parameter(Mandatory = $true)]
+        $DependencyElement
+    )
+    $Id = $DependencyElement.id
+    $Version = $DependencyElement.version
+    if (-not $Id) {
+        $Script:NugetLogger.Warn("依赖缺少 id 属性，跳过")
+        return $null
+    }
+    if ($Id -eq '_._') {
+        return $null
+    }
+    try {
+        if (-not $Version) {
+            $Version = '*'
+        }
+        $Range = ConvertTo-VersionRange -RangeString $Version
+        return [DependencyConstraint]::new($Id, $Range)
+    }
+    catch {
+        $Script:NugetLogger.Warn("无法解析依赖版本 '$Version' (包: $Id): $($_.Exception.Message)")
+        return $null
+    }
+}
+function Get-NugetPackageDependencies {
+    [CmdletBinding()]
+    [OutputType([DependencyConstraint[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [string]$Id,
+        [Parameter(Mandatory = $true)]
+        $Version,
+        [Parameter(Mandatory = $false)]
+        [DependencyResolutionContext]$Context,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetFramework
+    )
+    $NuGetVer = if ($Version -is [NuGetVersion]) { $Version } else { ConvertTo-NuGetVersion -VersionString $Version }
+    $VersionKey = $NuGetVer.NormalizedVersion
+    if ($Context) {
+        $CacheKey = "$($Id.ToLowerInvariant())|$VersionKey"
+        if ($Context.DependencyCache.ContainsKey($CacheKey)) {
+            $Script:NugetLogger.Info("[缓存命中] 依赖信息: $Id v$VersionKey")
+            return $Context.DependencyCache[$CacheKey]
+        }
+    }
+    $Script:NugetLogger.Info("获取依赖信息: $Id v$VersionKey")
+    try {
+        $NuspecXml = Get-NugetPackagManifest -Source $Source -Id $Id -Version $VersionKey
+        $EffectiveTFM = if ($TargetFramework) { $TargetFramework } elseif ($Context -and $Context.TargetFramework) { $Context.TargetFramework } else { '' }
+        $Deps = Get-NuspecDependencies -NuspecXml $NuspecXml -TargetFramework $EffectiveTFM
+        if ($Context) {
+            $CacheKey = "$($Id.ToLowerInvariant())|$VersionKey"
+            $Context.DependencyCache[$CacheKey] = $Deps
+        }
+        $Script:NugetLogger.Info("$Id v$VersionKey 有 $($Deps.Count) 个直接依赖")
+        return $Deps
+    }
+    catch {
+        $Script:NugetLogger.Warn("获取 $Id v$VersionKey 依赖信息失败: $($_.Exception.Message)")
+        return @()
+    }
+}
+function Get-CachedPackageVersions {
+    [CmdletBinding()]
+    [OutputType([NuGetVersion[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionContext]$Context,
+        [Parameter(Mandatory = $true)]
+        [string]$Id,
+        [Parameter(Mandatory = $false)]
+        [bool]$IncludePrerelease = $false
+    )
+    $IdLower = $Id.ToLowerInvariant()
+    if ($Context.VersionCache.ContainsKey($IdLower)) {
+        return $Context.VersionCache[$IdLower]
+    }
+    $Script:NugetLogger.Info("获取版本列表: $Id")
+    try {
+        $AllVersions = Get-NugetPackageVersions -Source $Context.Source -Id $Id -Preview:$IncludePrerelease
+        $NuGetVersions = [System.Collections.Generic.List[NuGetVersion]]::new()
+        foreach ($v in $AllVersions) {
+            $NuGetVersions.Add($v)
+        }
+        $Context.VersionCache[$IdLower] = $NuGetVersions.ToArray()
+        return $Context.VersionCache[$IdLower]
+    }
+    catch {
+        $Script:NugetLogger.Error("获取 $Id 版本列表失败: $($_.Exception.Message)")
+        return @()
+    }
+}
+function Register-Constraint {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionContext]$Context,
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId,
+        [Parameter(Mandatory = $true)]
+        [VersionRange]$Constraint
+    )
+    $IdLower = $PackageId.ToLowerInvariant()
+    if (-not $Context.Constraints.ContainsKey($IdLower)) {
+        $Context.Constraints[$IdLower] = [System.Collections.Generic.List[VersionRange]]::new()
+    }
+    $ConstraintStr = $Constraint.ToNormalizedString()
+    foreach ($existing in $Context.Constraints[$IdLower]) {
+        if ($existing.ToNormalizedString() -eq $ConstraintStr) {
+            $Script:NugetLogger.Info("[约束] $PackageId → $ConstraintStr (已存在，跳过)")
+            return
+        }
+    }
+    $Context.Constraints[$IdLower].Add($Constraint)
+    $Script:NugetLogger.Info("[约束] $PackageId → $ConstraintStr")
+}
+function Find-SatisfyingVersion {
+    [CmdletBinding()]
+    [OutputType([NuGetVersion])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionContext]$Context,
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[VersionRange]]$Constraints
+    )
+    $IncludePrerelease = ($Constraints | Where-Object { $_.HasPrereleaseBounds() }).Count -gt 0
+    $AvailableVersions = Get-CachedPackageVersions -Context $Context -Id $PackageId -IncludePrerelease $IncludePrerelease
+    if ($AvailableVersions.Count -eq 0) {
+        $Script:NugetLogger.Warn("$PackageId 没有可用版本")
+        return $null
+    }
+    $Satisfying = [System.Collections.Generic.List[NuGetVersion]]::new()
+    foreach ($v in $AvailableVersions) {
+        $AllSatisfied = $true
+        foreach ($c in $Constraints) {
+            if (-not $c.Satisfies($v)) {
+                $AllSatisfied = $false
+                break
+            }
+        }
+        if ($AllSatisfied) {
+            $Satisfying.Add($v)
+        }
+    }
+    if ($Satisfying.Count -eq 0) {
+        $ConstraintStrs = ($Constraints | ForEach-Object { $_.ToNormalizedString() }) -join ' AND '
+        $Script:NugetLogger.Warn("$PackageId 没有版本同时满足所有约束: $ConstraintStrs")
+        return $null
+    }
+    $Sorted = $Satisfying | Sort-Object -Property {
+        if ($_.IsPrerelease()) { return 1 } else { return 0 }
+    }, { -$_.Major }, { -$_.Minor }, { -$_.Patch }, { -$_.Revision }
+    $Best = $Sorted | Where-Object { -not $_.IsPrerelease() } | Select-Object -First 1
+    if (-not $Best) {
+        $Best = $Sorted | Select-Object -First 1
+    }
+    $Script:NugetLogger.Info("[求解] $PackageId → $($Best.NormalizedVersion) (最高兼容版本)")
+    return $Best
+}
+function Test-IsGreaterThanOrEqualToVersionRange {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [VersionRange]$NearVersion,
+        [Parameter(Mandatory = $true)]
+        [VersionRange]$FarVersion
+    )
+    if (-not $NearVersion.HasLowerBound()) { return $true }
+    if (-not $FarVersion.HasLowerBound()) { return $false }
+    if ($NearVersion.IsFloating() -or $FarVersion.IsFloating()) {
+        $nearMin = Get-ReleaseLabelFreeVersion -VersionRange $NearVersion
+        $farMin = Get-ReleaseLabelFreeVersion -VersionRange $FarVersion
+        $result = Compare-NugetVersionInternal -VersionA $nearMin -VersionB $farMin -ComparisonMode ([VersionComparison]::Version)
+        if ($result -ne 0) { return $result -gt 0 }
+        $nearRelease = if ($NearVersion.IsFloating()) { $NearVersion.FloatRange.OriginalReleasePrefix } else { $NearVersion.MinVersion.PreRelease }
+        $farRelease = if ($FarVersion.IsFloating()) { $FarVersion.FloatRange.OriginalReleasePrefix } else { $FarVersion.MinVersion.PreRelease }
+        if ([string]::IsNullOrEmpty($nearRelease)) { return $true }
+        if ([string]::IsNullOrEmpty($farRelease)) { return $false }
+        $len = [Math]::Min($nearRelease.Length, $farRelease.Length)
+        $cmp = [string]::Compare($nearRelease.Substring(0, $len), $farRelease.Substring(0, $len), [System.StringComparison]::OrdinalIgnoreCase)
+        if ($cmp -gt 0) { return $true }
+        if ($cmp -lt 0) { return $false }
+        if ($NearVersion.IsFloating() -and -not $FarVersion.IsFloating()) { return $true }
+        if (-not $NearVersion.IsFloating() -and $FarVersion.IsFloating()) { return $false }
+        return $nearRelease.Length -le $farRelease.Length
+    }
+    return (Compare-NugetVersionInternal -VersionA $NearVersion.MinVersion -VersionB $FarVersion.MinVersion -ComparisonMode ([VersionComparison]::VersionRelease)) -ge 0
+}
+function Get-ReleaseLabelFreeVersion {
+    [CmdletBinding()]
+    [OutputType([NuGetVersion])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [VersionRange]$VersionRange
+    )
+    if (-not $VersionRange.IsFloating()) {
+        $v = $VersionRange.MinVersion
+        return [NuGetVersion]::new("$($v.Major).$($v.Minor).$($v.Patch).$($v.Revision)")
+    }
+    $behavior = $VersionRange.FloatRange.FloatBehavior
+    $min = $VersionRange.MinVersion
+    if ($behavior -eq [NuGetVersionFloatBehavior]::Major -or $behavior -eq [NuGetVersionFloatBehavior]::PrereleaseMajor) {
+        return [NuGetVersion]::new('2147483647.2147483647.2147483647.2147483647')
+    }
+    elseif ($behavior -eq [NuGetVersionFloatBehavior]::Minor -or $behavior -eq [NuGetVersionFloatBehavior]::PrereleaseMinor) {
+        return [NuGetVersion]::new("$($min.Major).2147483647.2147483647.2147483647")
+    }
+    elseif ($behavior -eq [NuGetVersionFloatBehavior]::Patch -or $behavior -eq [NuGetVersionFloatBehavior]::PrereleasePatch) {
+        return [NuGetVersion]::new("$($min.Major).$($min.Minor).2147483647.2147483647")
+    }
+    elseif ($behavior -eq [NuGetVersionFloatBehavior]::Revision -or $behavior -eq [NuGetVersionFloatBehavior]::PrereleaseRevision) {
+        return [NuGetVersion]::new("$($min.Major).$($min.Minor).$($min.Patch).2147483647")
+    }
+    elseif ($behavior -eq [NuGetVersionFloatBehavior]::AbsoluteLatest) {
+        return [NuGetVersion]::new('2147483647.2147483647.2147483647.2147483647')
+    }
+    else {
+        return [NuGetVersion]::new("$($min.Major).$($min.Minor).$($min.Patch).$($min.Revision)")
+    }
+}
+function Save-ResolutionSnapshot {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionContext]$Context
+    )
+    $Snapshot = @{
+        Resolved    = $Context.Resolved.Clone()
+        InProgress  = $Context.InProgress.Clone()
+        Constraints = @{}
+    }
+    foreach ($kv in $Context.Constraints.GetEnumerator()) {
+        $Snapshot.Constraints[$kv.Key] = [System.Collections.Generic.List[VersionRange]]::new()
+        foreach ($c in $kv.Value) {
+            $Snapshot.Constraints[$kv.Key].Add($c)
+        }
+    }
+    $Context.ResolutionSnapshots.Add($Snapshot)
+}
+function Restore-ResolutionSnapshot {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionContext]$Context
+    )
+    if ($Context.ResolutionSnapshots.Count -eq 0) {
+        return
+    }
+    $Snapshot = $Context.ResolutionSnapshots[$Context.ResolutionSnapshots.Count - 1]
+    $Context.ResolutionSnapshots.RemoveAt($Context.ResolutionSnapshots.Count - 1)
+    $Context.Resolved = $Snapshot.Resolved
+    $Context.InProgress = $Snapshot.InProgress
+    $Context.Constraints = $Snapshot.Constraints
+}
+function Resolve-PackageInternal {
+    [CmdletBinding()]
+    [OutputType([DependencyNode])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionContext]$Context,
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId,
+        [Parameter(Mandatory = $true)]
+        [VersionRange]$VersionRange,
+        [Parameter(Mandatory = $false)]
+        [int]$Depth = 0,
+        [Parameter(Mandatory = $false)]
+        [DependencyNode]$ParentNode
+    )
+    $IdLower = $PackageId.ToLowerInvariant()
+    $Indent = '  ' * $Depth
+    if ($Depth -gt $Context.MaxDepth) {
+        $Script:NugetLogger.Error("${Indent}超过最大解析深度 $($Context.MaxDepth): $PackageId")
+        return $null
+    }
+    $Script:NugetLogger.Info("${Indent}[解析] $PackageId ← $($VersionRange.ToNormalizedString()) (深度=$Depth)")
+    if ($Context.Resolved.ContainsKey($IdLower)) {
+        $ResolvedNode = $Context.Resolved[$IdLower]
+        $ResolvedVersion = $ResolvedNode.ResolvedVersion
+        if ($VersionRange.Satisfies($ResolvedVersion)) {
+            $Script:NugetLogger.Info("${Indent}[复用] $PackageId v$($ResolvedVersion.NormalizedVersion) (已解析，满足约束)")
+            return $ResolvedNode
+        }
+        else {
+            $Script:NugetLogger.Warn("${Indent}[冲突] $PackageId 已解析为 v$($ResolvedVersion.NormalizedVersion)，但需要 $($VersionRange.ToNormalizedString())")
+            $AllConstraints = [System.Collections.Generic.List[VersionRange]]::new()
+            if ($Context.Constraints.ContainsKey($IdLower)) {
+                foreach ($c in $Context.Constraints[$IdLower]) {
+                    $AllConstraints.Add($c)
+                }
+            }
+            $AllConstraints.Add($VersionRange)
+            $NewBest = Find-SatisfyingVersion -Context $Context -PackageId $PackageId -Constraints $AllConstraints
+            if ($NewBest -and $NewBest.NormalizedVersion -eq $ResolvedVersion.NormalizedVersion) {
+                $Script:NugetLogger.Info("${Indent}[复用] 同一版本已满足所有约束")
+                return $ResolvedNode
+            }
+            elseif ($NewBest) {
+                $Script:NugetLogger.Info("${Indent}[升级] $PackageId 从 v$($ResolvedVersion.NormalizedVersion) 升级到 v$($NewBest.NormalizedVersion)")
+                $Context.Resolved.Remove($IdLower)
+            }
+            else {
+                $Script:NugetLogger.Error("${Indent}[失败] $PackageId 无法同时满足所有约束")
+                return $null
+            }
+        }
+    }
+    if ($Context.InProgress.ContainsKey($IdLower)) {
+        $Script:NugetLogger.Warn("${Indent}[环检测] $PackageId 正在解析中，标记为 Cycle")
+        $CycleNode = [DependencyNode]::new($PackageId, [NuGetVersion]::new('0.0.0'), $VersionRange, $Depth)
+        $CycleNode.Disposition = [DependencyDisposition]::Cycle
+        if ($ParentNode) {
+            $CycleNode.OuterNode = $ParentNode
+            [void]$CycleNode.ParentNodes.Add($ParentNode)
+        }
+        return $CycleNode
+    }
+    Register-Constraint -Context $Context -PackageId $PackageId -Constraint $VersionRange
+    $AllConstraints = $Context.Constraints[$IdLower]
+    $BestVersion = Find-SatisfyingVersion -Context $Context -PackageId $PackageId -Constraints $AllConstraints
+    if (-not $BestVersion) {
+        $ConstraintStrs = ($AllConstraints | ForEach-Object { $_.ToNormalizedString() }) -join ' AND '
+        $Script:NugetLogger.Error("${Indent}[失败] $PackageId 无版本满足约束: $ConstraintStrs")
+        return $null
+    }
+    $Context.InProgress[$IdLower] = $true
+    try {
+        $DirectDeps = Get-NugetPackageDependencies -Source $Context.Source -Id $PackageId -Version $BestVersion -Context $Context
+        $CurrentNode = [DependencyNode]::new($PackageId, $BestVersion, $VersionRange, $Depth)
+        $CurrentNode.Dependencies = $DirectDeps
+        if ($ParentNode) {
+            $CurrentNode.OuterNode = $ParentNode
+            [void]$CurrentNode.ParentNodes.Add($ParentNode)
+        }
+        $Children = [System.Collections.Generic.List[DependencyNode]]::new()
+        foreach ($dep in $DirectDeps) {
+            $ChildNode = Resolve-PackageInternal -Context $Context -PackageId $dep.PackageId -VersionRange $dep.VersionRange -Depth ($Depth + 1) -ParentNode $CurrentNode
+            if ($ChildNode) {
+                $Children.Add($ChildNode)
+                if ($ChildNode.OuterNode -and $ChildNode.OuterNode -ne $CurrentNode) {
+                    [void]$ChildNode.ParentNodes.Add($CurrentNode)
+                }
+            }
+            else {
+                $Script:NugetLogger.Warn("${Indent}[子依赖失败] $($dep.PackageId) 解析失败，继续解析其他依赖")
+            }
+        }
+        $CurrentNode.Children = $Children.ToArray()
+        $Context.Resolved[$IdLower] = $CurrentNode
+        $Script:NugetLogger.Info("${Indent}[完成] $PackageId v$($BestVersion.NormalizedVersion) ($($Children.Count) 个子依赖)")
+        return $CurrentNode
+    }
+    finally {
+        $Context.InProgress.Remove($IdLower)
+    }
+}
+function Resolve-DependencyConflicts {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyNode[]]$RootNodes,
+        [Parameter(Mandatory = $false)]
+        [int]$MaxIterations = 1000
+    )
+    if ($RootNodes.Count -eq 0) { return $true }
+    $Script:NugetLogger.Info("[分析] 阶段1: CheckCycleAndNearestWins")
+    foreach ($root in $RootNodes) {
+        Invoke-CheckCycleAndNearestWins -Root $root
+    }
+    $Script:NugetLogger.Info("[分析] 阶段2: TryResolveConflicts")
+    $patience = $MaxIterations
+    $incomplete = $true
+    $acceptedLibraries = @{}
+    while ($incomplete -and --$patience -gt 0) {
+        $tracker = [DependencyTracker]::new()
+        foreach ($root in $RootNodes) {
+            Invoke-WalkTreeRejectAndTrack -Node $root -State $true -Tracker $tracker
+        }
+        foreach ($root in $RootNodes) {
+            Invoke-WalkTreeMarkAmbiguous -Node $root -State 'Walking' -Tracker $tracker
+        }
+        $acceptContext = @{ Tracker = $tracker; AcceptedLibraries = $acceptedLibraries }
+        foreach ($root in $RootNodes) {
+            Invoke-WalkTreeAcceptOrReject -Node $root -State $true -AcceptContext $acceptContext
+        }
+        $incomplete = $false
+        foreach ($root in $RootNodes) {
+            if (Test-AnyAcceptableNode -Node $root) {
+                $incomplete = $true
+                break
+            }
+        }
+    }
+    if ($patience -le 0) {
+        $Script:NugetLogger.Warn("[分析] 冲突消解达到最大迭代次数限制")
+    }
+    $Script:NugetLogger.Info("[分析] 冲突消解完成: $(if ($incomplete) { '未收敛' } else { '已收敛' })")
+    return -not $incomplete
+}
+function Invoke-CheckCycleAndNearestWins {
+    param(
+        [DependencyNode]$Root
+    )
+    $Queue = [System.Collections.Generic.Queue[DependencyNode]]::new()
+    $Queue.Enqueue($Root)
+    while ($Queue.Count -gt 0) {
+        $node = $Queue.Dequeue()
+        if ($node.Disposition -eq [DependencyDisposition]::Cycle) {
+            if ($node.OuterNode) {
+                $NewChildren = [System.Collections.Generic.List[DependencyNode]]::new()
+                foreach ($child in $node.OuterNode.Children) {
+                    if ($child -ne $node) { $NewChildren.Add($child) }
+                }
+                $node.OuterNode.Children = $NewChildren.ToArray()
+            }
+            continue
+        }
+        if ($node.Disposition -eq [DependencyDisposition]::PotentiallyDowngraded) {
+            $downgradedTo = $null
+            for ($n = $node.OuterNode; $n -ne $null; $n = $n.OuterNode) {
+                foreach ($sideNode in $n.Children) {
+                    if ($sideNode -ne $node -and
+                        $sideNode.PackageId.ToLowerInvariant() -eq $node.PackageId.ToLowerInvariant()) {
+                        if ($sideNode.VersionRange -and $node.VersionRange) {
+                            if (-not (Test-IsGreaterThanOrEqualToVersionRange -NearVersion $sideNode.VersionRange -FarVersion $node.VersionRange)) {
+                                $resolvedVer = $sideNode.ResolvedVersion
+                                if ($resolvedVer -and $node.VersionRange.Satisfies($resolvedVer)) {
+                                    continue
+                                }
+                                $downgradedTo = $sideNode
+                            }
+                        }
+                        else {
+                            $downgradedTo = $null
+                        }
+                    }
+                }
+                if ($downgradedTo) { break }
+            }
+            if ($downgradedTo) {
+                $Script:NugetLogger.Info("[降级] $($node.PackageId) $($node.VersionRange.ToNormalizedString()) → $($downgradedTo.ResolvedVersion.NormalizedVersion)")
+                $node.Disposition = [DependencyDisposition]::Rejected
+                $downgradedTo.Disposition = [DependencyDisposition]::Accepted
+            }
+            if ($node.OuterNode) {
+                $NewChildren = [System.Collections.Generic.List[DependencyNode]]::new()
+                foreach ($child in $node.OuterNode.Children) {
+                    if ($child -ne $node) { $NewChildren.Add($child) }
+                }
+                $node.OuterNode.Children = $NewChildren.ToArray()
+            }
+            continue
+        }
+        foreach ($child in $node.Children) {
+            $Queue.Enqueue($child)
+        }
+    }
+}
+function Invoke-WalkTreeRejectAndTrack {
+    param(
+        [DependencyNode]$Node,
+        [bool]$State,
+        [DependencyTracker]$Tracker
+    )
+    $Queue = [System.Collections.Generic.Queue[hashtable]]::new()
+    $Queue.Enqueue(@{ Node = $Node; State = $State })
+    while ($Queue.Count -gt 0) {
+        $item = $Queue.Dequeue()
+        $n = $item.Node
+        $s = $item.State
+        if (-not $s -or $n.IsRejected()) {
+            $n.Disposition = [DependencyDisposition]::Rejected
+            $nextState = $false
+        }
+        else {
+            $Tracker.Track($n)
+            $nextState = $true
+        }
+        foreach ($child in $n.Children) {
+            $Queue.Enqueue(@{ Node = $child; State = $nextState })
+        }
+    }
+}
+function Invoke-WalkTreeMarkAmbiguous {
+    param(
+        [DependencyNode]$Node,
+        [string]$State,
+        [DependencyTracker]$Tracker
+    )
+    $Queue = [System.Collections.Generic.Queue[hashtable]]::new()
+    $Queue.Enqueue(@{ Node = $Node; State = $State })
+    while ($Queue.Count -gt 0) {
+        $item = $Queue.Dequeue()
+        $n = $item.Node
+        $s = $item.State
+        if ($n.IsRejected()) {
+            $nextState = 'Rejected'
+        }
+        elseif ($s -eq 'Walking' -and $Tracker.IsDisputed($n)) {
+            $nextState = 'Ambiguous'
+        }
+        elseif ($s -eq 'Ambiguous') {
+            $Tracker.MarkAmbiguous($n)
+            $nextState = 'Ambiguous'
+        }
+        else {
+            $nextState = $s
+        }
+        foreach ($child in $n.Children) {
+            $Queue.Enqueue(@{ Node = $child; State = $nextState })
+        }
+    }
+}
+function Invoke-WalkTreeAcceptOrReject {
+    param(
+        [DependencyNode]$Node,
+        [bool]$State,
+        [hashtable]$AcceptContext
+    )
+    $Tracker = $AcceptContext.Tracker
+    $AcceptedLibraries = $AcceptContext.AcceptedLibraries
+    $Queue = [System.Collections.Generic.Queue[hashtable]]::new()
+    $Queue.Enqueue(@{ Node = $Node; State = $State })
+    while ($Queue.Count -gt 0) {
+        $item = $Queue.Dequeue()
+        $n = $item.Node
+        $s = $item.State
+        if (-not $s -or $n.IsRejected()) {
+            $nextState = $false
+        }
+        else {
+            if ($Tracker.IsAmbiguous($n)) {
+                $nextState = $false
+            }
+            elseif ($n.Disposition -eq [DependencyDisposition]::Acceptable) {
+                if ($Tracker.IsBestVersion($n)) {
+                    $n.Disposition = [DependencyDisposition]::Accepted
+                    $key = $n.PackageId.ToLowerInvariant()
+                    $AcceptedLibraries[$key] = $n
+                    $Script:NugetLogger.Info("[接受] $($n.PackageId) v$($n.ResolvedVersion.NormalizedVersion)")
+                }
+                else {
+                    $n.Disposition = [DependencyDisposition]::Rejected
+                    $Script:NugetLogger.Info("[拒绝] $($n.PackageId) v$($n.ResolvedVersion.NormalizedVersion)")
+                }
+            }
+            $nextState = $n.IsAccepted()
+        }
+        foreach ($child in $n.Children) {
+            $Queue.Enqueue(@{ Node = $child; State = $nextState })
+        }
+    }
+}
+function Test-AnyAcceptableNode {
+    param([DependencyNode]$Node)
+    $Queue = [System.Collections.Generic.Queue[DependencyNode]]::new()
+    $Queue.Enqueue($Node)
+    while ($Queue.Count -gt 0) {
+        $n = $Queue.Dequeue()
+        if ($n.Disposition -eq [DependencyDisposition]::Acceptable) {
+            return $true
+        }
+        foreach ($child in $n.Children) {
+            $Queue.Enqueue($child)
+        }
+    }
+    return $false
+}
+function Get-AcceptedPackages {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyNode[]]$RootNodes
+    )
+    $Result = @{}
+    $Queue = [System.Collections.Generic.Queue[DependencyNode]]::new()
+    $Seen = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($root in $RootNodes) {
+        $Queue.Enqueue($root)
+    }
+    while ($Queue.Count -gt 0) {
+        $node = $Queue.Dequeue()
+        $key = $node.PackageId.ToLowerInvariant()
+        if ($node.IsAccepted() -and $Seen.Add($key)) {
+            $Result[$node.PackageId] = $node.ResolvedVersion
+        }
+        foreach ($child in $node.Children) {
+            $Queue.Enqueue($child)
+        }
+    }
+    return $Result
+}
+function Expand-NugetDependency {
+    [CmdletBinding()]
+    [OutputType([DependencyNode])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [string]$Id,
+        [Parameter(Mandatory = $true)]
+        [string]$Version,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 100)]
+        [int]$MaxDepth = 50,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetFramework,
+        [Parameter(Mandatory = $false)]
+        [switch]$IncludePrerelease
+    )
+    $Context = [DependencyResolutionContext]::new($Source)
+    $Context.MaxDepth = $MaxDepth
+    if ($TargetFramework) {
+        $Context.TargetFramework = $TargetFramework
+    }
+    $RootRange = ConvertTo-VersionRange -RangeString "[$Version, $Version]"
+    $RootNode = Resolve-PackageInternal -Context $Context -PackageId $Id -VersionRange $RootRange -Depth 0
+    if (-not $RootNode) {
+        throw "展开 $Id v$Version 依赖树失败"
+    }
+    $converged = Resolve-DependencyConflicts -RootNodes @($RootNode)
+    if (-not $converged) {
+        $Script:NugetLogger.Warn("依赖图冲突消解未完全收敛")
+    }
+    $Script:NugetLogger.Info("依赖展开完成: $($Context.Resolved.Count) 个唯一包")
+    return $RootNode
+}
+function Resolve-NugetDependencyClosure {
+    [CmdletBinding()]
+    [OutputType([DependencyResolutionResult])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Packages,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 100)]
+        [int]$MaxDepth = 50,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetFramework,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 100)]
+        [int]$MaxConflictRetries = 20
+    )
+    $Result = [DependencyResolutionResult]::new()
+    $Context = [DependencyResolutionContext]::new($Source)
+    $Context.MaxDepth = $MaxDepth
+    $Context.MaxConflictRetries = $MaxConflictRetries
+    if ($TargetFramework) {
+        $Context.TargetFramework = $TargetFramework
+    }
+    $Script:NugetLogger.Info("=" * 60)
+    $Script:NugetLogger.Info("开始依赖闭包求解")
+    $Script:NugetLogger.Info("根包数量: $($Packages.Count)")
+    foreach ($kv in $Packages.GetEnumerator()) {
+        $Script:NugetLogger.Info("  $($kv.Key) → $($kv.Value)")
+    }
+    $Script:NugetLogger.Info("=" * 60)
+    $RootConstraints = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($kv in $Packages.GetEnumerator()) {
+        try {
+            $Range = ConvertTo-VersionRange -RangeString $kv.Value
+            $RootConstraints.Add(@{ Id = $kv.Key; Range = $Range })
+            Register-Constraint -Context $Context -PackageId $kv.Key -Constraint $Range
+        }
+        catch {
+            $Result.Errors += "无法解析版本范围 '$($kv.Value)' (包: $($kv.Key)): $($_.Exception.Message)"
+        }
+    }
+    if ($Result.Errors.Count -gt 0) {
+        $Result.Success = $false
+        return $Result
+    }
+    $RootNodes = [System.Collections.Generic.List[DependencyNode]]::new()
+    $AllSuccess = $true
+    foreach ($rc in $RootConstraints) {
+        $node = Resolve-PackageInternal -Context $Context -PackageId $rc.Id -VersionRange $rc.Range -Depth 0
+        if ($node) {
+            $RootNodes.Add($node)
+        }
+        else {
+            $AllSuccess = $false
+            $Result.Errors += "无法解析根包: $($rc.Id) ← $($rc.Range.ToNormalizedString())"
+        }
+    }
+    $converged = Resolve-DependencyConflicts -RootNodes $RootNodes.ToArray()
+    if (-not $converged) {
+        $Script:NugetLogger.Warn("依赖图冲突消解未完全收敛")
+        $Result.Errors += "依赖图冲突消解未完全收敛"
+    }
+    $Result.Success = $AllSuccess
+    $Result.RootNodes = $RootNodes.ToArray()
+    $Result.TotalPackages = (Get-AcceptedPackages -RootNodes $RootNodes).Count
+    $MaxTreeDepth = 0
+    foreach ($node in $RootNodes) {
+        $nd = Get-NodeMaxDepth -Node $node
+        if ($nd -gt $MaxTreeDepth) { $MaxTreeDepth = $nd }
+    }
+    $Result.MaxDepth = $MaxTreeDepth
+    $Result.ResolvedPackages = Get-AcceptedPackages -RootNodes $RootNodes
+    $Script:NugetLogger.Info("=" * 60)
+    if ($AllSuccess) {
+        $Script:NugetLogger.Info("求解成功: $($Result.TotalPackages) 个包, 最大深度: $MaxTreeDepth")
+    }
+    else {
+        $Script:NugetLogger.Info("求解失败: $($Result.Errors.Count) 个错误")
+        foreach ($err in $Result.Errors) {
+            $Script:NugetLogger.Error("  $err")
+        }
+    }
+    $Script:NugetLogger.Info("=" * 60)
+    return $Result
+}
+function Get-NugetDependencyClosure {
+    [CmdletBinding()]
+    [OutputType([DependencyResolutionResult])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Packages,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 100)]
+        [int]$MaxDepth = 50,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetFramework
+    )
+    return Resolve-NugetDependencyClosure -Source $Source -Packages $Packages -MaxDepth $MaxDepth -TargetFramework $TargetFramework
+}
+function Get-NodeMaxDepth {
+    param([DependencyNode]$Node)
+    if (-not $Node -or $Node.Children.Count -eq 0) {
+        return $Node.Depth
+    }
+    $maxChildDepth = 0
+    foreach ($child in $Node.Children) {
+        $cd = Get-NodeMaxDepth -Node $child
+        if ($cd -gt $maxChildDepth) { $maxChildDepth = $cd }
+    }
+    return $maxChildDepth
+}
+function Format-NugetDependencyTree {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param (
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [DependencyNode]$Node,
+        [Parameter(Mandatory = $false)]
+        [string]$Indent = '',
+        [Parameter(Mandatory = $false)]
+        [bool]$IsLast = $true,
+        [Parameter(Mandatory = $false)]
+        [switch]$ShowDisposition
+    )
+    process {
+        $Lines = [System.Collections.Generic.List[string]]::new()
+        if ($Node.IsRejected() -and -not $ShowDisposition) {
+            return $Lines.ToArray()
+        }
+        $Marker = if ($Indent -eq '') { '' } elseif ($IsLast) { '└── ' } else { '├── ' }
+        $VersionStr = if ($Node.ResolvedVersion) { $Node.ResolvedVersion.NormalizedVersion } else { '?' }
+        $DispositionStr = if ($ShowDisposition) { " [$($Node.Disposition.ToString())]" } else { '' }
+        $CycleStr = if ($Node.Disposition -eq [DependencyDisposition]::Cycle) { ' (cycle)' } else { '' }
+        $Lines.Add("$Indent$Marker$($Node.PackageId) v$VersionStr$DispositionStr$CycleStr")
+        $VisibleChildren = if ($ShowDisposition) {
+            $Node.Children
+        }
+        else {
+            @($Node.Children | Where-Object { -not $_.IsRejected() })
+        }
+        $ChildIndent = if ($Indent -eq '') { '' } elseif ($IsLast) { "$Indent    " } else { "$Indent│   " }
+        for ($i = 0; $i -lt $VisibleChildren.Count; $i++) {
+            $isLastChild = ($i -eq $VisibleChildren.Count - 1)
+            $ChildLines = Format-NugetDependencyTree -Node $VisibleChildren[$i] -Indent $ChildIndent -IsLast $isLastChild -ShowDisposition:$ShowDisposition
+            $Lines.AddRange($ChildLines)
+        }
+        return $Lines.ToArray()
+    }
+}
+function Format-NugetDependencyList {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param (
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [DependencyResolutionResult]$Result,
+        [Parameter(Mandatory = $false)]
+        [switch]$ShowVersion
+    )
+    process {
+        $Lines = [System.Collections.Generic.List[string]]::new()
+        $ShowVer = -not $ShowVersion -or $ShowVersion
+        $Sorted = $Result.ResolvedPackages.GetEnumerator() |
+            Sort-Object -Property Key
+        foreach ($kv in $Sorted) {
+            $Lines.Add("$($kv.Key) v$($kv.Value.NormalizedVersion)")
+        }
+        return $Lines.ToArray()
+    }
+}
+function Format-NugetDependencyMermaid {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyNode]$Node
+    )
+    $Lines = [System.Collections.Generic.List[string]]::new()
+    $Lines.Add('```mermaid')
+    $Lines.Add('flowchart TD')
+    $NodeIds = @{}
+    $Counter = 0
+    function Get-NodeId {
+        param([string]$PackageId)
+        if (-not $NodeIds.ContainsKey($PackageId)) {
+            $Script:Counter++
+            $NodeIds[$PackageId] = "N$Script:Counter"
+        }
+        return $NodeIds[$PackageId]
+    }
+    function Render-Node {
+        param([DependencyNode]$N)
+        if ($N.IsRejected() -or $N.Disposition -eq [DependencyDisposition]::Cycle) { return }
+        $nid = Get-NodeId -PackageId $N.PackageId
+        $ver = if ($N.ResolvedVersion) { $N.ResolvedVersion.NormalizedVersion } else { '?' }
+        $Lines.Add("    $nid[`"$($N.PackageId)<br/>v$ver`"]")
+        foreach ($child in $N.Children) {
+            if ($child.IsRejected()) { continue }
+            $cid = Get-NodeId -PackageId $child.PackageId
+            $Lines.Add("    $nid --> $cid")
+            Render-Node -Node $child
+        }
+    }
+    Render-Node -Node $Node
+    $Lines.Add('```')
+    return $Lines -join "`n"
+}
+function Test-NugetDependencyConflict {
+    [CmdletBinding()]
+    [OutputType([hashtable[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionResult]$Result
+    )
+    $Conflicts = [System.Collections.Generic.List[hashtable]]::new()
+    function Collect-VersionConstraints {
+        param([DependencyNode]$Node, [hashtable]$Collected)
+        $IdLower = $Node.PackageId.ToLowerInvariant()
+        if (-not $Collected.ContainsKey($IdLower)) {
+            $Collected[$IdLower] = @{
+                PackageId = $Node.PackageId
+                Versions  = [System.Collections.Generic.List[string]]::new()
+                Paths     = [System.Collections.Generic.List[string]]::new()
+            }
+        }
+        $Collected[$IdLower].Versions.Add($Node.ResolvedVersion.NormalizedVersion)
+        $Path = Get-NodePath -Node $Node
+        $Collected[$IdLower].Paths.Add($Path)
+        foreach ($child in $Node.Children) {
+            Collect-VersionConstraints -Node $child -Collected $Collected
+        }
+    }
+    $Collected = @{}
+    foreach ($root in $Result.RootNodes) {
+        Collect-VersionConstraints -Node $root -Collected $Collected
+    }
+    foreach ($kv in $Collected.GetEnumerator()) {
+        $Info = $kv.Value
+        $UniqueVersions = $Info.Versions | Select-Object -Unique
+        if ($UniqueVersions.Count -gt 1) {
+            $Conflicts.Add(@{
+                PackageId      = $Info.PackageId
+                Versions       = $UniqueVersions
+                AllOccurrences = $Info.Versions.Count
+                Paths          = $Info.Paths
+            })
+        }
+    }
+    if ($Conflicts.Count -gt 0) {
+        $Script:NugetLogger.Warn("检测到 $($Conflicts.Count) 个包有多个版本引用（可能需要版本统一）:")
+        foreach ($c in $Conflicts) {
+            $Script:NugetLogger.Warn("  $($c.PackageId): $($c.Versions -join ', ')")
+        }
+    }
+    return $Conflicts.ToArray()
+}
+function Get-NodePath {
+    param([DependencyNode]$Node)
+    return $Node.PackageId
+}
+function Export-NugetDependencyResult {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [DependencyResolutionResult]$Result,
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath
+    )
+    $ExportData = @{
+        Success        = $Result.Success
+        TotalPackages  = $Result.TotalPackages
+        MaxDepth       = $Result.MaxDepth
+        Errors         = $Result.Errors
+        Packages       = @{}
+    }
+    foreach ($kv in $Result.ResolvedPackages.GetEnumerator()) {
+        $ExportData.Packages[$kv.Key] = $kv.Value.NormalizedVersion
+    }
+    $ExportData | ConvertTo-Json -Depth 10 | Set-Content -Path $OutputPath -Encoding UTF8
+    $Script:NugetLogger.Info("依赖解析结果已导出到: $OutputPath")
+}
+function Invoke-NugetDependencyBatch {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [NugetSource]$Source,
+        [Parameter(Mandatory = $true)]
+        [hashtable[]]$PackageList,
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(1, 100)]
+        [int]$MaxDepth = 50,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetFramework
+    )
+    $Results = @{}
+    foreach ($pkg in $PackageList) {
+        $Id = $pkg.Id
+        $Version = $pkg.Version
+        $Script:NugetLogger.Info("批量解析: $Id v$Version")
+        try {
+            $Packages = @{ $Id = $Version }
+            $Result = Resolve-NugetDependencyClosure -Source $Source -Packages $Packages -MaxDepth $MaxDepth -TargetFramework $TargetFramework
+            $Results[$Id] = $Result
+        }
+        catch {
+            $Script:NugetLogger.Error("批量解析 $Id 失败: $($_.Exception.Message)")
+            $FailResult = [DependencyResolutionResult]::new()
+            $FailResult.Success = $false
+            $FailResult.Errors = @($_.Exception.Message)
+            $Results[$Id] = $FailResult
+        }
+    }
+    return $Results
 }
 $Script:ModuleBuilders["Source"] = {
     [CmdletBinding()]
